@@ -5,14 +5,14 @@
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69 
 
+#define MY_NODE_ID AUTO
+#define MY_PARENT_NODE_ID AUTO 
+
 #include <SPI.h>
 #include <MySensors.h>
 #include <avr/wdt.h>
 #include <DHT.h>
 #include <EEPROM.h>
-
-#define MY_NODE_ID AUTO
-#define MY_PARENT_NODE_ID AUTO 
 
 #define BATTERY_AS_SENSOR
 
