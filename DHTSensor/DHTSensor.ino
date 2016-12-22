@@ -12,7 +12,7 @@
 #include <EEPROM.h>
 
 #define MY_NODE_ID AUTO
-#define MY_PARENT_NODE_ID 0 
+#define MY_PARENT_NODE_ID AUTO 
 
 #define BATTERY_AS_SENSOR
 
@@ -23,10 +23,17 @@
 #define MIN_V 2800 // empty voltage (0%)
 #define MAX_V 3300 // full voltage (100%)
 
-#define HUMIDITY_SENSOR_DIGITAL_PIN 3
+#define DHTPIN 2
+
+// Uncomment whatever type you're using!
+//#define DHTTYPE DHT11   // DHT 11
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+//#define DHTTYPE DHT21   // DHT 21 (AM2301)
+
 unsigned long SLEEP_TIME = 300000; // Sleep time between reads (in milliseconds)
 
-DHT dht;
+DHT dht(DHTPIN, DHTTYPE);
+
 float lastTemp;
 float lastHum;
 boolean metric = true; 
@@ -136,7 +143,7 @@ void setup()
   // (bit 7) to one.
   ACSR = B10000000; 
   
-  dht.setup(HUMIDITY_SENSOR_DIGITAL_PIN); 
+  dht.begin();
   
   wdt_enable(WDTO_8S);
 }
@@ -155,17 +162,11 @@ void presentation() {
 void loop()      
 {  
   wdt_reset();
-  
-  delay(dht.getMinimumSamplingPeriod());
 
-  float temperature = dht.getTemperature();
+  float temperature = temperature = dht.readTemperature(!metric);    
   if (isnan(temperature)) {
       Serial.println("Failed reading temperature from DHT");
   } else if (temperature != lastTemp) {    
-    if (!metric) {
-      temperature = dht.toFahrenheit(temperature);
-    }
-
     Serial.print("T: ");
     Serial.println(temperature);
     
@@ -177,7 +178,7 @@ void loop()
     }
   }
   
-  float humidity = dht.getHumidity();
+  float humidity = dht.readHumidity();
   if (isnan(humidity)) {
       Serial.println("Failed reading humidity from DHT");
   } else if (humidity != lastHum) {      

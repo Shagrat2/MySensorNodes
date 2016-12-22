@@ -1,6 +1,6 @@
 // #define SYS_BAT - Батарею через функцию MySensor
-#define MY_NODE_ID 33
-#define MY_PARENT_NODE_ID 5
+#define MY_NODE_ID AUTO
+#define MY_PARENT_NODE_ID AUTO
 
 // Enable debug prints to serial monitor
 #define MY_DEBUG 
