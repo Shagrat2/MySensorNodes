@@ -1,4 +1,4 @@
- // Interrupt driven binary switch example with dual interrupts
+// Interrupt driven binary switch example with dual interrupts
 // Author: Patrick 'Anticimex' Fallberg
 // Connect one button or door/window reed switch between 
 // digitial I/O pin 3 (BUTTON_PIN below) and GND and the other

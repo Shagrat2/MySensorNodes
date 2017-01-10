@@ -1,4 +1,3 @@
-#define MY_NODE_ID AUTO
 #define MY_PARENT_NODE_ID AUTO
 #define MY_REPEATER_FEATURE // Enable repeater functionality for this node
 
@@ -16,6 +15,7 @@
 
 // Enable debug prints to serial monitor
 #define MY_DEBUG 
+#define DEBUG
 
 // Enables repeater functionality (relays messages from other nodes)
 // #define MY_REPEATER_FEATURE
@@ -37,16 +37,40 @@
 
 #define CURRENT_PIN A6 // ACS712 pin
 #define CURRENT_ID  3  // Sensor current ID
-#define CURRENT_VperAmp 66 // 185=5A, 100=20A, 66=30A
-#define CURRENT_Soffset -1 // Zero
+#define CURRENT_VperAmp 185 // 185=5A, 100=20A, 66=30A
+
+#define NODESYSTEM_ID 254
 
 unsigned long SEND_FREQUENCY = 900000; // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 
 unsigned long currentTime;
 unsigned long lastSend;
-byte LightState;
+uint8_t LightState;
+uint8_t LightStateSendTry = 0;
+unsigned long LightStateSendTime = 0;
+
+uint8_t CURRENT_MaxLoad = 255;
+
+#define SendTry 8
+#define SendTryTimeOut 1000
+
+#define INT_MIN -32767
+#define INT_MAX 32767
+
+int RawLast = INT_MIN;
+int RawMax = INT_MIN;
+int RawCnt = 0;
+
+int8_t CURRENT_Offset = 0; // Zero
+
+// Error ststus
+uint8_t ErrorTry = 0;
+unsigned long ErrorTime = 0;
+char ErrorMsg[10];
 
 void setup() { 
+  uint8_t val;
+  
   wdt_disable();
 
   Serial.begin(115200);
@@ -64,14 +88,37 @@ void setup() {
   pinMode(TEMP_PIN, INPUT);
 
   //== Current
-  pinMode(CURRENT_PIN, INPUT);
+  pinMode(CURRENT_PIN, INPUT);  
+  pinMode(12, INPUT);
+  
+  // Read offset  
+  val = loadState(CURRENT_ID*10+0);
+  if (val != 0xFF){
+    CURRENT_Offset = int8_t(val-128);
+    #ifdef DEBUG
+      Serial.print("Load current offset: ");
+      Serial.println(CURRENT_Offset);
+    #endif
+  }  
+
+  // Read max load
+  val = loadState(CURRENT_ID*10+2);
+  if (val != 0xFF){
+    CURRENT_MaxLoad = val;
+    #ifdef DEBUG
+      Serial.print("Current max load: ");
+      Serial.println(CURRENT_MaxLoad);
+    #endif
+  }
 
   // Make sure that ATSHA204 is not floating
 //  pinMode(ATSHA204_PIN, INPUT);
 //  digitalWrite(ATSHA204_PIN, HIGH); 
 
   #ifdef MY_OTA_FIRMWARE_FEATURE  
-    Serial.println("OTA FW update enabled");
+    #ifdef DEBUG
+      Serial.println("OTA FW update enabled");
+    #endif
   #endif
 
   wdt_enable(WDTO_8S);    
@@ -94,10 +141,48 @@ void presentation()
 }
 
 void loop() 
-{
+{  
   wdt_reset();
 
   currentTime = millis();
+
+  //=== Current
+  int Raw = analogRead(CURRENT_PIN);
+  if (Raw > RawMax) RawMax = Raw;
+  RawCnt++;
+  if (RawCnt > 1000){
+    RawLast = RawMax;
+    RawMax = INT_MIN;
+    RawCnt = 0;
+
+    if (LightState == RELAY_ON){
+      // Source is low
+      if (RawLast < 1){              
+        strlcpy(ErrorMsg, "No load", sizeof(ErrorMsg));
+        ErrorTry = 5;
+        ErrorTime = 0;
+      }
+
+      // Owerload
+      if (RawLast > CURRENT_MaxLoad*2) {        
+        LightState = RELAY_OFF;
+        digitalWrite(LIGHT_PIN, LightState);
+
+        strlcpy(ErrorMsg, "Overload", sizeof(ErrorMsg));
+        ErrorTry = 200;
+        ErrorTime = 0;
+      }
+    }
+  }  
+
+  //=== Light state to gate
+  if ((LightStateSendTry != 0) && (currentTime - LightStateSendTime > SendTryTimeOut)) {
+    if (SendData(0, LIGHT_ID, V_LIGHT, LightState?RELAY_ON:RELAY_OFF, true)) {
+      LightStateSendTry = 0;      
+    }
+
+    LightStateSendTime = currentTime;
+  }
   
   //=== Repeater
   // Send feq
@@ -106,65 +191,133 @@ void loop()
     sendHeartbeat();
 
     //TODO: Send temp flag
-    SendTemp();
+    SendData(0, TEMP_ID, V_TEMP, ReadTmp(), 1);
 
     //TODO: Send current flag
-    SendCurrent();    
+    SendData(0, CURRENT_ID, V_CURRENT, ReadCurrent(), 3);    
     
     lastSend=currentTime;
   }
+
+  //=== Send error
+  if (ErrorTry != 0)
+    if (currentTime - ErrorTime > SendTryTimeOut){
+      if (SendData(0, NODESYSTEM_ID, V_TEXT, ErrorMsg, true)){
+        ErrorTry = 0;
+      } else {
+        ErrorTry--;
+        ErrorTime = currentTime;
+      }
+    }
 }
 
 float ReadTmp(){
   return analogRead(TEMP_PIN) * (5 / 1023.0);
 }
 
-void SendTemp(){
+bool SendData(uint8_t Dest, uint8_t Sensor, uint8_t Type, const char* Value, bool Ack) {
   MyMessage answerMsg;
   mSetCommand(answerMsg, C_SET);
-  answerMsg.setSensor(TEMP_ID);
-  answerMsg.setDestination(0);
-  answerMsg.setType(V_TEMP);
-  send(answerMsg.set( ReadTmp(), 1));
+  answerMsg.setSensor(Sensor);
+  answerMsg.setDestination(Dest);
+  answerMsg.setType(Type);
+  return send(answerMsg.set(Value), Ack); 
 }
 
+bool SendData(uint8_t Dest, uint8_t Sensor, uint8_t Type, int Value, bool Ack){
+  MyMessage answerMsg;
+  mSetCommand(answerMsg, C_SET);
+  answerMsg.setSensor(Sensor);
+  answerMsg.setDestination(Dest);
+  answerMsg.setType(Type);
+  if (Value == INT_MIN)
+    return send(answerMsg.set(""), Ack);
+  else
+    return send(answerMsg.set(Value), Ack);
+}
+
+bool SendData(uint8_t Dest, uint8_t Sensor, uint8_t Type, float Value, uint8_t Decimals, bool Ack){
+  MyMessage answerMsg;
+  mSetCommand(answerMsg, C_SET);
+  answerMsg.setSensor(Sensor); 
+  answerMsg.setDestination(Dest);
+  answerMsg.setType(Type);
+  if (Value == NAN)
+    return send(answerMsg.set(""), Ack);
+  else
+    return send(answerMsg.set(Value, Decimals), Ack);
+}
+
+float ReadCurrentVolt(){   
+  if (RawLast == INT_MIN)
+    return NAN;
+  else {
+    if (RawLast == INT_MIN) 
+      return NAN;
+    else
+      return (2.5*RawLast) / 1024.0; // Gets you mV  
+  }
+}
 
 float ReadCurrent(){ 
-  int RawValue = analogRead(CURRENT_PIN);
-  Serial.println(RawValue);
-
-  return (float)(RawValue-(512+CURRENT_Soffset))/1024*5/CURRENT_VperAmp*1000000;  
-}
-
-void SendCurrent(){
-  MyMessage answerMsg;
-  mSetCommand(answerMsg, C_SET);
-  answerMsg.setSensor(CURRENT_ID);
-  answerMsg.setDestination(0);
-  answerMsg.setType(V_CURRENT);
-  send(answerMsg.set( ReadCurrent(), 1));
+  float Val = ReadCurrentVolt();
+  if (Val == NAN)
+    return NAN;
+  else
+    return Val / CURRENT_VperAmp;
 }
 
 void receive(const MyMessage &message) {
-
+  uint8_t Dest = message.sender;
+  
   // Request
   if (mGetCommand(message) == C_REQ) {
-     MyMessage answerMsg;
-     Serial.print("Incoming request for sensor: ");
-     Serial.println(message.sensor);
-     mSetCommand(answerMsg, C_SET);
-     answerMsg.setSensor(message.sensor);
-     answerMsg.setDestination(message.sender);
+     #ifdef DEBUG
+       Serial.print("Incoming request from:");
+       Serial.println(Dest);
+       Serial.print(", for sensor: ");
+       Serial.println(message.sensor);
+     #endif
      switch (message.sensor) {
        case LIGHT_ID:
-           answerMsg.setType(V_LIGHT);
-           send(answerMsg.set(LightState));
+           SendData(Dest, LIGHT_ID, V_LIGHT, LightState, false);
            break;
+           
        case TEMP_ID:
-           SendTemp();           
-           break;
+          switch (message.type) {
+            case V_TEMP:
+              SendData(Dest, TEMP_ID, V_TEMP, ReadTmp(), false);
+              break;
+          }
+          break;
+           
        case CURRENT_ID:
-           SendCurrent();
+           switch (message.type) {
+            // Vltage
+            case V_VOLTAGE:              
+              SendData(Dest, CURRENT_ID, V_VOLTAGE, ReadCurrentVolt(), 3, false);
+              break;
+
+            // Raw data
+            case V_CUSTOM:              
+              SendData(Dest, CURRENT_ID, V_CUSTOM, RawLast, false);
+              break;
+
+            // Offset
+            case V_VAR1:
+              SendData(Dest, CURRENT_ID, V_VAR1, CURRENT_Offset, false);
+              break;
+
+            // Max load
+            case V_VAR3:
+              SendData(Dest, CURRENT_ID, V_VAR1, CURRENT_MaxLoad, false);
+              break;
+                      
+            default:
+              SendData(Dest, CURRENT_ID, V_CURRENT, ReadCurrent(), 3, false);              
+              break;
+           }
+           
            break;
     }
 
@@ -173,23 +326,60 @@ void receive(const MyMessage &message) {
   
   // Light state
   if ((message.type==V_LIGHT) && (message.sensor == LIGHT_ID)) {
-     // Change relay state
+     // Change relay state     
      LightState = message.getBool()?RELAY_ON:RELAY_OFF;
      digitalWrite(LIGHT_PIN, LightState);
      // Store state in eeprom
      saveState(LIGHT_ID, message.getBool());
+
+     // If set state not from gate
+     if (Dest != 0){
+       LightStateSendTry = SendTry;
+       LightStateSendTime = 0;       
+     }
      
      // Write some debug info
-     Serial.print("Incoming change for sensor:");
-     Serial.print(message.sensor);
-     Serial.print(", New status: ");
-     Serial.println(message.getBool());
+     #ifdef DEBUG
+       Serial.print("Incoming change from: ");
+       Serial.print(Dest);
+       Serial.print(", for sensor: ");
+       Serial.print(message.sensor);
+       Serial.print(", New status: ");
+       Serial.println(message.getBool());
+     #endif
   } 
+  // Current state
+  else if (message.sensor == CURRENT_ID){
+      switch (message.type) {
+        case V_VAR1:
+          CURRENT_Offset = int8_t(message.getInt());     
+          saveState(CURRENT_ID*10+0, uint8_t(128+CURRENT_Offset));
+    
+          #ifdef DEBUG
+            Serial.print("Set current offset: ");
+            Serial.println(CURRENT_Offset);
+          #endif  
+          break;
+          
+        case V_VAR3:
+          CURRENT_MaxLoad = int8_t(message.getInt());     
+          saveState(CURRENT_ID*10+2, uint8_t(CURRENT_MaxLoad));
+    
+          #ifdef DEBUG
+            Serial.print("Set current max load: ");
+            Serial.println(CURRENT_MaxLoad);
+          #endif  
+          break;
+      }      
+  }
+  
    // TODO Send presentation to button nodes
    // TODO Command button key
 }
 
 void testMode(){
-  Serial.println(F("Test finished"));
+  #ifdef DEBUG  
+    Serial.println(F("Test finished"));
+  #endif
 }
 
