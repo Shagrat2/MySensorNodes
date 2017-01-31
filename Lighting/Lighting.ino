@@ -35,8 +35,14 @@
 #define TEMP_PIN   A3 // Termistor pin
 #define TEMP_ID    2  // Sensor temp ID
 
-#define CURRENT_PIN A6 // ACS712 pin
-#define CURRENT_ID  3  // Sensor current ID
+#define TEMP_TERMISTORNOMINAL    10000 // Сопротивление при 25 градусах по Цельсию
+#define TEMP_TEMPERATURENOMINAL  25    // temp. для номинального сопротивления (практически всегда равна 25 C)
+#define TEMP_NUMAMOSTRAS         5     // сколько показаний используем для определения среднего значения 
+#define TEMP_BCOEFFICIENT        3375  // бета коэффициент термистора (обычно 3000-4000)
+#define TEMP_SERIESRESISTOR      10000
+
+#define CURRENT_PIN A6      // ACS712 pin
+#define CURRENT_ID  3       // Sensor current ID
 #define CURRENT_VperAmp 185 // 185=5A, 100=20A, 66=30A
 
 #define NODESYSTEM_ID 254
@@ -60,8 +66,10 @@ uint8_t CURRENT_MaxLoad = 255;
 int RawLast = INT_MIN;
 int RawMax = INT_MIN;
 int RawCnt = 0;
-
 int8_t CURRENT_Offset = 0; // Zero
+
+float TempLast = 0;
+int TempMax = 60;
 
 // Error ststus
 uint8_t ErrorTry = 0;
@@ -111,6 +119,16 @@ void setup() {
     #endif
   }
 
+  // Read max temp
+  val = loadState(TEMP_ID*10+2);
+  if (val != 0xFF){
+    TempMax = val;
+    #ifdef DEBUG
+      Serial.print("Temp max max load: ");
+      Serial.println(TempMax);
+    #endif
+  }
+
   // Make sure that ATSHA204 is not floating
 //  pinMode(ATSHA204_PIN, INPUT);
 //  digitalWrite(ATSHA204_PIN, HIGH); 
@@ -142,6 +160,8 @@ void presentation()
 
 void loop() 
 {  
+  float fval;
+  
   wdt_reset();
 
   currentTime = millis();
@@ -175,6 +195,17 @@ void loop()
     }
   }  
 
+  // Temp overload
+  fval = ReadTmp();
+  if (fval >= TempMax){
+    LightState = RELAY_OFF;
+    digitalWrite(LIGHT_PIN, LightState);
+
+    strlcpy(ErrorMsg, "Over temp", sizeof(ErrorMsg));
+    ErrorTry = 200;
+    ErrorTime = 0;
+  }
+
   //=== Light state to gate
   if ((LightStateSendTry != 0) && (currentTime - LightStateSendTime > SendTryTimeOut)) {
     if (SendData(0, LIGHT_ID, V_LIGHT, LightState?RELAY_ON:RELAY_OFF, true)) {
@@ -190,12 +221,18 @@ void loop()
   if (currentTime - lastSend > SEND_FREQUENCY){
     sendHeartbeat();
 
-    //TODO: Send temp flag
-    SendData(0, TEMP_ID, V_TEMP, ReadTmp(), 1);
+    // Temp
+    fval = ReadTmp();
+    if (fval != TempLast){
+      wait(50);
+      SendData(0, TEMP_ID, V_TEMP, fval, 1);
+      TempLast = fval;
+    }
 
-    //TODO: Send current flag
-    SendData(0, CURRENT_ID, V_CURRENT, ReadCurrent(), 3);    
-    
+    // Current
+    wait(50);
+    SendData(0, CURRENT_ID, V_CURRENT, ReadCurrent(), 3);
+      
     lastSend=currentTime;
   }
 
@@ -212,7 +249,40 @@ void loop()
 }
 
 float ReadTmp(){
-  return analogRead(TEMP_PIN) * (5 / 1023.0);
+  int i;
+  float media;
+  int amostra[TEMP_NUMAMOSTRAS];
+
+  for (i=0; i< TEMP_NUMAMOSTRAS; i++) {
+    amostra[i] = analogRead(TEMP_PIN);    
+    delay(10);
+  }
+  
+  media = 0;
+  for (i=0; i< TEMP_NUMAMOSTRAS; i++) {
+    media += amostra[i];
+  }
+  media /= TEMP_NUMAMOSTRAS;
+  // Convert the thermal stress value to resistance
+  media = 1023 / media - 1;
+  media = TEMP_SERIESRESISTOR / media;
+  
+  //Calculate temperature using the Beta Factor equation
+  float temperatura;
+
+  temperatura = media / TEMP_TERMISTORNOMINAL; // (R/Ro)
+  temperatura = log(temperatura); // ln(R/Ro)
+  temperatura /= TEMP_BCOEFFICIENT; // 1/B * ln(R/Ro)
+  temperatura += 1.0 / (TEMP_TEMPERATURENOMINAL + 273.15); // + (1/To)
+  temperatura = 1.0 / temperatura; // Invert the value
+  temperatura -= 273.15;    
+
+  #ifdef debug
+     Serial.print("Temp RAW:");
+     Serial.println(temperatura);
+  #endif
+
+  return temperatura;
 }
 
 bool SendData(uint8_t Dest, uint8_t Sensor, uint8_t Type, const char* Value, bool Ack) {
@@ -286,7 +356,10 @@ void receive(const MyMessage &message) {
        case TEMP_ID:
           switch (message.type) {
             case V_TEMP:
-              SendData(Dest, TEMP_ID, V_TEMP, ReadTmp(), false);
+              SendData(Dest, TEMP_ID, V_TEMP, ReadTmp(), 1, false);
+              break;
+            case V_VAR3:
+              SendData(Dest, TEMP_ID, V_TEMP, TempMax, false);
               break;
           }
           break;
@@ -372,7 +445,20 @@ void receive(const MyMessage &message) {
           break;
       }      
   }
-  
+  // Current state
+  else if (message.sensor == TEMP_ID){
+      switch (message.type) {
+        case V_VAR3:
+          TempMax = int8_t(message.getInt());     
+          saveState(TEMP_ID*10+2, uint8_t(TempMax));
+    
+          #ifdef DEBUG
+            Serial.print("Set temp max: ");
+            Serial.println(TempMax);
+          #endif  
+          break;
+      }
+  }
    // TODO Send presentation to button nodes
    // TODO Command button key
 }

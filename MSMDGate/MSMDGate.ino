@@ -56,7 +56,6 @@
 #endif
 
 // Flash leds on rx/tx/err
-#define MY_LEDS_BLINKING_FEATURE
 // Set blinking period
 #define MY_DEFAULT_LED_BLINK_PERIOD 300
 
