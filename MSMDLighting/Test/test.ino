@@ -3,6 +3,10 @@
 #define LIGHT_PIN   3   // Arduino Digital I/O pin number for first relay
 #define MY_SIGNING_ATSHA204_PIN 16 // A2
 
+#define MY_OTA_FIRMWARE_FEATURE
+#define MY_OTA_FLASH_SS 7
+#define MY_OTA_FLASH_JDECID 0x2013
+
 #define MY_DEBUG 
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69
@@ -12,8 +16,6 @@
 
 #include <SPI.h>
 #include <MySensors.h>
-
-//SPIFlash _flash(MY_OTA_FLASH_SS, MY_OTA_FLASH_JDECID);
 
 bool testSha204()
 {
@@ -64,7 +66,7 @@ void setup() {
   // NTC
   pinMode(TEMP_PIN, INPUT);
   Val = analogRead(TEMP_PIN);
-  if ((Val < 518) || (Val > 530)){
+  if ((Val < 518) || (Val > 536)){
     Serial.print("NTC error: ");    
   } else {
     Serial.print("NTC: OK = ");    
@@ -74,7 +76,7 @@ void setup() {
   // ACS
   pinMode(CURRENT_PIN, INPUT);
   Val = analogRead(CURRENT_PIN);
-  if ((Val < 262) || (Val > 266)){
+  if ((Val < 262) || (Val > 269)){
     Serial.print("ACS error: ");    
   } else {
     Serial.print("ACS: OK = ");
@@ -82,13 +84,31 @@ void setup() {
   Serial.println(Val);
 
   // Flash
-/*  
-  if (!_flash.initialize()) { 
-    Serial.println("Flash: ERROR");
+  SPI.begin(); // инициализация интерфейса SPI
+  pinMode(MY_OTA_FLASH_SS, OUTPUT);
+
+  // Read ID
+  digitalWrite(MY_OTA_FLASH_SS, LOW);
+
+  SPI.transfer(SPIFLASH_IDREAD);
+
+  uint8_t head = SPI.transfer(0);  
+
+  uint16_t jedecid = SPI.transfer(0) << 8;
+  jedecid |= SPI.transfer(0); 
+
+  digitalWrite(MY_OTA_FLASH_SS, HIGH);
+  
+  if ((head != 0x20) || (jedecid != 0x2013)) {
+    Serial.print("Flash: ERROR: ");
+    Serial.print("H=");
+    Serial.print(head);
+    Serial.print(" JEDEC=");
+    Serial.println(jedecid);
   } else {
     Serial.println("Flash: OK");
   }
-*/
+
   // ATASHA
   testSha204();
 
