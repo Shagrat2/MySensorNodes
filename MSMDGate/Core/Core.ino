@@ -36,9 +36,6 @@
  * 
  */
 
-// Enable debug prints to serial monitor
-#define MY_DEBUG 
-
 // Enable and select radio type attached
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69
@@ -84,13 +81,18 @@
 
 #include <SPI.h>
 #include <MySensors.h>  
+#include <avr/wdt.h>
 
 void setup() { 
+  wdt_disable();
+    
   // Setup locally attached sensors
 
   // Set power on WIFI
   pinMode(WIFIPOWER_PIN, OUTPUT); 
   digitalWrite(WIFIPOWER_PIN, 0);
+
+  wdt_enable(WDTO_8S);
 }
 
 void presentation() {
@@ -98,6 +100,8 @@ void presentation() {
 }
 
 void loop() { 
+  wdt_reset();
+    
   // Send locally attached sensor data here 
 }
 

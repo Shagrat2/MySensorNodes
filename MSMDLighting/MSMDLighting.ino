@@ -35,11 +35,14 @@
 #define TEMP_PIN   A3 // Termistor pin
 #define TEMP_ID    2  // Sensor temp ID
 
+#define TEMP_Average  5    // Number of samples to average temperature 
+/*
 #define TEMP_TERMISTORNOMINAL    10000 // Сопротивление при 25 градусах по Цельсию
 #define TEMP_TEMPERATURENOMINAL  25    // temp. для номинального сопротивления (практически всегда равна 25 C)
 #define TEMP_NUMAMOSTRAS         5     // сколько показаний используем для определения среднего значения 
 #define TEMP_BCOEFFICIENT        3375  // бета коэффициент термистора (обычно 3000-4000)
 #define TEMP_SERIESRESISTOR      10000
+*/
 
 #define CURRENT_PIN A6      // ACS712 pin
 #define CURRENT_ID  3       // Sensor current ID
@@ -250,6 +253,28 @@ void loop()
 
 float ReadTmp(){
   int i;
+  float Temp_ADC;
+  int amostra[TEMP_Average];
+
+  for (i=0; i< TEMP_Average; i++) {
+    amostra[i] = analogRead(TEMP_PIN);    
+    delay(10);
+  }
+  
+  Temp_ADC = 0;
+  for (i=0; i< TEMP_Average; i++) {
+    Temp_ADC += amostra[i];
+  }
+  Temp_ADC /= TEMP_Average;
+  
+  //Calculate temperature using the Beta Factor equation
+  float temperatura;
+
+  temperatura = -36.9*log(Temp_ADC)+271.4;
+  return temperatura;
+  
+/*  
+  int i;
   float media;
   int amostra[TEMP_NUMAMOSTRAS];
 
@@ -283,6 +308,7 @@ float ReadTmp(){
   #endif
 
   return temperatura;
+*/  
 }
 
 bool SendData(uint8_t Dest, uint8_t Sensor, uint8_t Type, const char* Value, bool Ack) {
