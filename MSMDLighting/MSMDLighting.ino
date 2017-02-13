@@ -4,7 +4,7 @@
 // Flash options
 #define MY_OTA_FIRMWARE_FEATURE
 #define MY_OTA_FLASH_SS 7
-#define MY_OTA_FLASH_JDECID 0x2013
+#define MY_OTA_FLASH_JDECID 0x2020
 
 //#define MY_SIGNING_SOFT
 //#define MY_SIGNING_SOFT_RANDOMSEED_PIN 7
@@ -149,7 +149,7 @@ void setup() {
 void presentation()  
 {   
   // Node info
-  sendSketchInfo("Lighting", "1.0");
+  sendSketchInfo("Lighting", "1.1");
 
   // Light
   present(LIGHT_ID, S_LIGHT, "Light relay");

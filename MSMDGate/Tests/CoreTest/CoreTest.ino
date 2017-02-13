@@ -1,11 +1,8 @@
-#define TEMP_PIN    A3  // Termistor pin
-#define CURRENT_PIN A6  // ACS712 pin
-#define LIGHT_PIN   3   // Arduino Digital I/O pin number for first relay
-#define MY_SIGNING_ATSHA204_PIN 16 // A2
-
 #define MY_OTA_FIRMWARE_FEATURE
-#define MY_OTA_FLASH_SS 7
+#define MY_OTA_FLASH_SS 17
 #define MY_OTA_FLASH_JDECID 0x2013
+
+#define MY_SIGNING_ATSHA204_PIN 16 // A2
 
 #define MY_DEBUG
 #define MY_RADIO_NRF24
@@ -56,8 +53,6 @@ bool testSha204()
 }
 
 void setup() {
-  int Val;
-
   Serial.begin(115200);
 
   // CPU
@@ -69,26 +64,6 @@ void setup() {
   } else {
     Serial.println("Radio: ERROR");
   }
-
-  // NTC
-  pinMode(TEMP_PIN, INPUT);
-  Val = analogRead(TEMP_PIN);
-  if ((Val < 518) || (Val > 536)) {
-    Serial.print("NTC error: ");
-  } else {
-    Serial.print("NTC: OK = ");
-  }
-  Serial.println(Val);
-
-  // ACS
-  pinMode(CURRENT_PIN, INPUT);
-  Val = analogRead(CURRENT_PIN);
-  if ((Val < 262) || (Val > 269)) {
-    Serial.print("ACS error: ");
-  } else {
-    Serial.print("ACS: OK = ");
-  }
-  Serial.println(Val);
 
   // Flash
   SPI.begin(); // инициализация интерфейса SPI
@@ -117,22 +92,9 @@ void setup() {
   }
 
   // ATASHA
-  testSha204();
-
-  // Key
-  Serial.println("Key: Watch tester blinks");
-
-  pinMode(LIGHT_PIN, OUTPUT);
-  while (true) {
-    digitalWrite(LIGHT_PIN, HIGH);
-    delay(2000);
-
-    digitalWrite(LIGHT_PIN, LOW);
-    delay(2000);
-  }
+  testSha204();  
 }
 
 void loop() {
 
 }
-
