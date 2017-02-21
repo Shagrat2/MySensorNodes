@@ -73,7 +73,7 @@ void setup() {
   // NTC
   pinMode(TEMP_PIN, INPUT);
   Val = analogRead(TEMP_PIN);
-  if ((Val < 518) || (Val > 536)) {
+  if ((Val < 518) || (Val > 542)) {
     Serial.print("NTC error: ");
   } else {
     Serial.print("NTC: OK = ");

@@ -185,7 +185,7 @@ void loop()
         ErrorTry = 5;
         ErrorTime = 0;
       }
-
+/*
       // Owerload
       if (RawLast > CURRENT_MaxLoad*2) {        
         LightState = RELAY_OFF;
@@ -195,6 +195,7 @@ void loop()
         ErrorTry = 200;
         ErrorTime = 0;
       }
+*/      
     }
   }  
 
