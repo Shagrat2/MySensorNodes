@@ -86,7 +86,7 @@ void setup() {
   WebServerInit();  
 
   //=== Config connect AP
-  APConnect = APCSSId != "";
+  APConnect = strcmp(APCSSId, "") == 0;
   APCStatus = WL_IDLE_STATUS;
   APCLastTime = millis();
 
