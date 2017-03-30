@@ -5,7 +5,6 @@
 
 #define MY_OTA_FIRMWARE_FEATURE
 #define MY_OTA_FLASH_SS 7
-#define MY_OTA_FLASH_JDECID 0x2013
 
 #define MY_DEBUG
 #define MY_RADIO_NRF24
@@ -91,29 +90,10 @@ void setup() {
   Serial.println(Val);
 
   // Flash
-  SPI.begin(); // инициализация интерфейса SPI
-  pinMode(MY_OTA_FLASH_SS, OUTPUT);
-
-  // Read ID
-  digitalWrite(MY_OTA_FLASH_SS, LOW);
-
-  SPI.transfer(SPIFLASH_IDREAD);
-
-  uint8_t head = SPI.transfer(0);
-
-  uint16_t jedecid = SPI.transfer(0) << 8;
-  jedecid |= SPI.transfer(0);
-
-  digitalWrite(MY_OTA_FLASH_SS, HIGH);
-
-  if ((head != 0x20) || (jedecid != 0x2013)) {
-    Serial.print("Flash: ERROR: ");
-    Serial.print("H=");
-    Serial.print(head);
-    Serial.print(" JEDEC=");
-    Serial.println(jedecid);
-  } else {
+  if (_flash.initialize()) {
     Serial.println("Flash: OK");
+  } else {    
+    Serial.print("Flash: ERROR ");
   }
 
   // ATASHA

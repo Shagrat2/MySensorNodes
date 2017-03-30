@@ -88,6 +88,10 @@ void setup() {
     
   // Setup locally attached sensors
 
+  //???
+  pinMode(3, OUTPUT);
+  digitalWrite(3, 1);
+
   // Set power on WIFI
   pinMode(WIFIPOWER_PIN, OUTPUT); 
   digitalWrite(WIFIPOWER_PIN, 0);
