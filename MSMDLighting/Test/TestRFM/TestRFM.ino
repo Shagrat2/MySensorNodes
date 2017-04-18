@@ -8,6 +8,7 @@
 
 #define MY_DEBUG
 #define MY_RADIO_RFM69
+#define MY_RFM69_FREQUENCY RF69_433MHZ
 
 #define MY_CORE_ONLY // Not change
 #define MY_SIGNING_ATSHA204

@@ -22,6 +22,7 @@
 // Enable and select radio type attached
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69
+//#define MY_RFM69_FREQUENCY RF69_433MHZ
 
 #include <SPI.h>
 #include <MySensors.h>
@@ -148,7 +149,7 @@ void setup() {
 void presentation()  
 {   
   // Node info
-  sendSketchInfo("Lighting", "1.2");
+  sendSketchInfo("Lighting", "1.2.5");
 
   // Light
   present(LIGHT_ID, S_LIGHT, "Light relay");

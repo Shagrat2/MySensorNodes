@@ -11,44 +11,42 @@ NodeManager includes the following main components:
 Documentation available on: https://mynodemanager.sourceforge.io 
  */
 
+#define MY_OTA_FIRMWARE_FEATURE
+ 
 // load user settings
 #include "config.h"
- 
-// Enable debug prints to serial monitor
-//#define MY_DEBUG  
-
-#define SKETCH_NAME "NodeManagerTemplate"
-#define SKETCH_VERSION "1.3"
-
-#define SKETCH_NAME "Weather station"
-#define SKETCH_MAJOR_VER "1"
-#define SKETCH_MINOR_VER "0"
- 
 // load MySensors library
 #include <MySensors.h>
 // load NodeManager library
 #include "NodeManager.h"
 
+#define SKETCH_NAME "Sprinkers"
+#define SKETCH_VERSION "2.1.2"
+
 // create a NodeManager instance
 NodeManager nodeManager;
+
+unsigned long SEND_FREQUENCY = 300000; // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
+
+unsigned long currentTime;
+unsigned long lastSend;
 
 // before
 void before() {
   // setup the serial port baud rate
   Serial.begin(MY_BAUD_RATE);  
-
-  //nodeManager.setSleepMode(WAIT);
-  nodeManager.setSleep(WAIT,5,SECONDS); 
-  
   /*
    * Register below your sensors
-  */ 
-  
-//  nodeManager.registerSensor(SENSOR_BMP);
-//  SensorBMP* presSensor = ((SensorBMP*)nodeManager.get(bmp));
-//  presSensor.setType(V_PRESSURE);
+  */
+  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,2);
+  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,3);
+  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,4);
+  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,5);
 
-  nodeManager.registerSensor(SENSOR_DHT22, 8);
+  int sensor_ldr = nodeManager.registerSensor(SENSOR_DS18B20, 6);
+  SensorDs18b20* DS = ((SensorDs18b20*)nodeManager.get(sensor_ldr));
+  DS->setSamplesInterval(SEND_FREQUENCY);
+  DS->setTackLastValue(false);
 
   /*
    * Register above your sensors
@@ -62,25 +60,43 @@ void presentation() {
 	sendSketchInfo(SKETCH_NAME,SKETCH_VERSION);
   // call NodeManager presentation routine
   nodeManager.presentation();
-
 }
 
 // setup
 void setup() {
   wdt_disable();
-  
+
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);  
+
+  digitalWrite(2, LOW); 
+  digitalWrite(3, LOW); 
+  digitalWrite(4, LOW); 
+  digitalWrite(5, LOW); 
+    
   // call NodeManager setup routine
   nodeManager.setup();
 
-  wdt_enable(WDTO_8S);
+  wdt_enable(WDTO_8S);    
+  lastSend=millis();    
 }
 
 // loop
 void loop() {
   wdt_reset();
-  
+
+  currentTime = millis();
+      
   // call NodeManager loop routine
-  nodeManager.loop();  
+  nodeManager.loop();
+
+  // Send feq
+  if (currentTime - lastSend > SEND_FREQUENCY){
+    sendHeartbeat();     
+    lastSend=currentTime;
+  }
 }
 
 // receive
