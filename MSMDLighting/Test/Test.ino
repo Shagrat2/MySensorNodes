@@ -3,18 +3,30 @@
 #define LIGHT_PIN   3   // Arduino Digital I/O pin number for first relay
 #define MY_SIGNING_ATSHA204_PIN 16 // A2
 
+//#DEFINE M25P40 // Flash type
+
 #define MY_OTA_FIRMWARE_FEATURE
 #define MY_OTA_FLASH_SS 7
 
 #define MY_DEBUG
-#define MY_RADIO_RFM69
+
+#define MY_RADIO_NRF24
+//#define MY_RADIO_RFM69
 #define MY_RFM69_FREQUENCY RF69_433MHZ
 
 #define MY_CORE_ONLY // Not change
 #define MY_SIGNING_ATSHA204
 
+#ifdef M25P40
+	#define MY_OTA_FLASH_JDECID 0x2020
+#endif
+
 #include <SPI.h>
 #include <MySensors.h>
+
+#ifdef M25P40
+	#define SPIFLASH_BLOCKERASE_32K   0xD8
+#endif
 
 bool testSha204()
 {
