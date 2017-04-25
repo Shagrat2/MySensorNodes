@@ -1,15 +1,15 @@
-Настройте тип вашего Light
+п»їРќР°СЃС‚СЂРѕР№С‚Рµ С‚РёРї РІР°С€РµРіРѕ Light
 
-Если у вас NRF24
+Р•СЃР»Рё Сѓ РІР°СЃ NRF24
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69
 
-Если у вас RFM69
+Р•СЃР»Рё Сѓ РІР°СЃ RFM69
 //#define MY_RADIO_NRF24
 #define MY_RADIO_RFM69
 
-Настройте частоту RFM69
+РќР°СЃС‚СЂРѕР№С‚Рµ С‡Р°СЃС‚РѕС‚Сѓ RFM69
 #define MY_RFM69_FREQUENCY RF69_433MHZ
 
-Если у вас микросхема флэшь M25P40
+Р•СЃР»Рё Сѓ РІР°СЃ РјРёРєСЂРѕСЃС…РµРјР° С„Р»СЌС€СЊ M25P40
 #DEFINE M25P40 // Flash type
