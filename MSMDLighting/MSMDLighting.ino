@@ -88,7 +88,8 @@ uint8_t ErrorTry = 0;
 unsigned long ErrorTime = 0;
 char ErrorMsg[10];
 
-void setup() { 
+// Before init MySensors
+void before(){
   uint8_t val;
   
   wdt_disable();
@@ -97,7 +98,7 @@ void setup() {
 
   testMode();
 
-  //== Light
+    //== Light
   // Then set relay pins in output mode
   pinMode(LIGHT_PIN, OUTPUT);   
   // Set relay to last known state (using eeprom storage) 
@@ -152,7 +153,12 @@ void setup() {
   #endif
 
   wdt_enable(WDTO_8S);    
+
   lastSend=millis();  
+}
+
+void setup() { 
+  // After init MySensor 
 }
 
 void presentation()  
