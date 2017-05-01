@@ -16,6 +16,8 @@
 
 #define S2 // Hav S2 sensor
 
+#define MY_SMART_SLEEP_WAIT_DURATION_MS (200ul)
+
 #define S1_CHILD_ID     1
 #define S1_DIGITAL_INPUT_SENSOR 2                     // The digital input you attached your sensor.  (Only 2 and 3 generates interrupt!)
 #define S1_PULSE_FACTOR 100                           // Nummber of blinks per m3 of your meter (One rotation/liter)
@@ -227,7 +229,7 @@ void loop()
       if ((!S1_pcReceived) || (!S2_pcReceived)) 
     #endif
     {
-      sleep(8000);
+      smartSleep(8000);
       
       // Last Pulsecount not yet received from controller, request it again
       if (!S1_pcReceived){
@@ -329,7 +331,7 @@ void loop()
     SendDevInfo();
     
     Serial.println("sleep");
-    sleep(SEND_FREQUENCY);
+    smartSleep(SEND_FREQUENCY);
   }
 }
 
