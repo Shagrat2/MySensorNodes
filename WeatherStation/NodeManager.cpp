@@ -10,24 +10,29 @@
 
 // return vcc in V
 float getVcc() {
-  // Measure Vcc against 1.1V Vref
-  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-    ADMUX = (_BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1));
-  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
-    ADMUX = (_BV(MUX5) | _BV(MUX0));
-  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
-    ADMUX = (_BV(MUX3) | _BV(MUX2));
+  #ifndef MY_GATEWAY_ESP8266
+    // Measure Vcc against 1.1V Vref
+    #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+      ADMUX = (_BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1));
+    #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+      ADMUX = (_BV(MUX5) | _BV(MUX0));
+    #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+      ADMUX = (_BV(MUX3) | _BV(MUX2));
+    #else
+      ADMUX = (_BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1));
+    #endif
+    // Vref settle
+    wait(70);
+    // Do conversion
+    ADCSRA |= _BV(ADSC);
+    while (bit_is_set(ADCSRA, ADSC)) {};
+    // return Vcc in mV
+    return (float)((1125300UL) / ADC) / 1000;
   #else
-    ADMUX = (_BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1));
+    return (float)0;
   #endif
-  // Vref settle
-  delay(70);
-  // Do conversion
-  ADCSRA |= _BV(ADSC);
-  while (bit_is_set(ADCSRA, ADSC)) {};
-  // return Vcc in mV
-  return (float)((1125300UL) / ADC) / 1000;
 }
+
 
 /***************************************
    PowerManager
@@ -123,6 +128,12 @@ void Sensor::setType(int value) {
 int Sensor::getType() {
   return _type;
 }
+void Sensor::setDescription(char* value) {
+  _description = value;
+}
+void Sensor::setAck(bool value) {
+  _ack = value;
+}
 void Sensor::setRetries(int value) {
   _retries = value;
 }
@@ -140,6 +151,9 @@ void Sensor::setForceUpdate(int value) {
 }
 void Sensor::setValueType(int value) {
   _value_type = value;
+}
+int Sensor::getValueType() {
+  return _value_type;
 }
 void Sensor::setFloatPrecision(int value) {
   _float_precision = value;
@@ -161,6 +175,21 @@ void Sensor::setFloatPrecision(int value) {
 void Sensor::setSleepBetweenSend(int value) {
   _sleep_between_send = value;
 }
+void Sensor::setInterruptPin(int value) {
+  _interrupt_pin = value;
+}
+int Sensor::getInterruptPin() {
+  return _interrupt_pin;
+}
+int Sensor::getValueInt() {
+  return _last_value_int;
+}
+float Sensor::getValueFloat() {
+  return _last_value_float;
+}
+char* Sensor::getValueString() {
+  return _last_value_string;
+}
 
 // present the sensor to the gateway and controller
 void Sensor::presentation() {
@@ -170,7 +199,7 @@ void Sensor::presentation() {
     Serial.print(F(" T="));
     Serial.println(_presentation);
   #endif
-  present(_child_id, _presentation);
+  present(_child_id, _presentation,_description,_ack);
 }
 
 // call the sensor-specific implementation of before
@@ -195,7 +224,7 @@ void Sensor::loop(const MyMessage & message) {
   // for numeric sensor requiring multiple samples, keep track of the total
   float total = 0;
   // keep track of the number of cycles since the last update
-  _cycles++;
+  if (_force_update > 0) _cycles++;
   // collect multiple samples if needed
   for (int i = 0; i < _samples; i++) {
     // call the sensor-specific implementation of the main task which will store the result in the _value variable
@@ -254,7 +283,7 @@ void Sensor::loop(const MyMessage & message) {
 void Sensor::receive(const MyMessage &message) {
   // return if not for this sensor
   if (message.sensor != _child_id || message.type != _type) return;
-  // a request would make the sensor executing its main task
+  // a request would make the sensor executing its main task passing along the message
   loop(message);
 }
 
@@ -263,7 +292,7 @@ void Sensor::_send(MyMessage & message) {
   // send the message, multiple times if requested
   for (int i = 0; i < _retries; i++) {
     // if configured, sleep beetween each send
-    if (_sleep_between_send > 0) wait(_sleep_between_send);
+    if (_sleep_between_send > 0) sleep(_sleep_between_send);
     #if DEBUG == 1
       Serial.print(F("SEND D="));
       Serial.print(message.destination);
@@ -275,12 +304,12 @@ void Sensor::_send(MyMessage & message) {
       Serial.print(message.type);
       Serial.print(F(" S="));
       Serial.print(message.getString());
-      Serial.print(F(" N="));
+      Serial.print(F(" I="));
       Serial.print(message.getInt());
       Serial.print(F(" F="));
       Serial.println(message.getFloat());
     #endif
-    send(message);
+    send(message,_ack);
   }
 }
 
@@ -309,17 +338,17 @@ void SensorAnalogInput::setRangeMax(int value) {
   _range_max = value;
 }
 
-// what do to during before
+// what to do during before
 void SensorAnalogInput::onBefore() {
   // prepare the pin for input
   pinMode(_pin, INPUT);
 }
 
-// what do to during setup
+// what to do during setup
 void SensorAnalogInput::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorAnalogInput::onLoop() {
   // read the input
   int adc = _getAnalogRead();
@@ -338,18 +367,20 @@ void SensorAnalogInput::onLoop() {
   _value_int = _output_percentage ? percentage : adc;
 }
 
-// what do to during loop
+// what to do during loop
 void SensorAnalogInput::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 // read the analog input
 int SensorAnalogInput::_getAnalogRead() {
-  // set the reference
-  if (_reference != -1) {
-    analogReference(_reference);
-    wait(100);
-  }
+  #ifndef MY_GATEWAY_ESP8266
+    // set the reference
+    if (_reference != -1) {
+      analogReference(_reference);
+      wait(100);
+    }
+  #endif
   // read and return the value
   int value = analogRead(_pin);
   if (_reverse) value = _range_max - value;
@@ -394,7 +425,7 @@ SensorThermistor::SensorThermistor(int child_id, int pin): Sensor(child_id, pin)
 }
 
 // setter/getter
-void SensorThermistor::setNominalResistor(int value) {
+void SensorThermistor::setNominalResistor(long value) {
   _nominal_resistor = value;
 }
 void SensorThermistor::setNominalTemperature(int value) {
@@ -403,24 +434,24 @@ void SensorThermistor::setNominalTemperature(int value) {
 void SensorThermistor::setBCoefficient(int value) {
   _b_coefficient = value;
 }
-void SensorThermistor::setSeriesResistor(int value) {
+void SensorThermistor::setSeriesResistor(long value) {
   _series_resistor = value;
 }
 void SensorThermistor::setOffset(float value) {
   _offset = value;
 }
 
-// what do to during before
+// what to do during before
 void SensorThermistor::onBefore() {
   // set the pin as input
   pinMode(_pin, INPUT);
 }
 
-// what do to during setup
+// what to do during setup
 void SensorThermistor::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorThermistor::onLoop() {
   // read the voltage across the thermistor
   float adc = analogRead(_pin);
@@ -441,7 +472,7 @@ void SensorThermistor::onLoop() {
     Serial.print(F(" V="));
     Serial.print(adc);
     Serial.print(F(" T="));
-    Serial.println(temperature);
+    Serial.print(temperature);
     Serial.print(F(" M="));
     Serial.println(getControllerConfig().isMetric);
   #endif
@@ -449,9 +480,9 @@ void SensorThermistor::onLoop() {
   _value_float = temperature;
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorThermistor::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 
@@ -467,18 +498,17 @@ SensorML8511::SensorML8511(int child_id, int pin): Sensor(child_id, pin) {
   setValueType(TYPE_FLOAT);
 }
 
-// what do to during before
+// what to do during before
 void SensorML8511::onBefore() {
   // set the pin as input
   pinMode(_pin, INPUT);
 }
 
-// what do to during setup
+// what to do during setup
 void SensorML8511::onSetup() {
-  onLoop();
 }
 
-// what do to during loop
+// what to do during loop
 void SensorML8511::onLoop() {
   // read the voltage 
   int uvLevel = analogRead(_pin);
@@ -499,15 +529,150 @@ void SensorML8511::onLoop() {
   _value_float = uvIntensity;
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorML8511::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 // The Arduino Map function but for floats
 float SensorML8511::_mapfloat(float x, float in_min, float in_max, float out_min, float out_max) {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
+
+/*
+   SensorACS712
+*/
+
+// contructor
+SensorACS712::SensorACS712(int child_id, int pin): Sensor(child_id, pin) {
+  // set presentation, type and value type
+  setPresentation(S_MULTIMETER);
+  setType(V_CURRENT);
+  setValueType(TYPE_FLOAT);
+}
+
+// setter/getter
+void SensorACS712::setmVPerAmp(int value) {
+  _mv_per_amp = value;
+}
+void SensorACS712::setOffset(int value) {
+  _ACS_offset = value;
+}
+
+// what to do during before
+void SensorACS712::onBefore() {
+  // set the pin as input
+  pinMode(_pin, INPUT);
+}
+
+// what to do during setup
+void SensorACS712::onSetup() {
+}
+
+// what to do during loop
+void SensorACS712::onLoop() {
+  int value = analogRead(_pin);
+  // convert the analog read in mV
+  double voltage = (value / 1024.0) * 5000; 
+  // convert voltage in amps
+  _value_float = ((voltage - _ACS_offset) / _mv_per_amp);
+  #if DEBUG == 1
+    Serial.print(F("ACS I="));
+    Serial.print(_child_id);
+    Serial.print(F(" A="));
+    Serial.println(_value_float);
+  #endif
+}
+
+// what to do as the main task when receiving a message
+void SensorACS712::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_REQ) onLoop();
+}
+
+/*
+   SensorRainGauge
+*/
+
+// contructor
+SensorRainGauge::SensorRainGauge(int child_id, int pin): Sensor(child_id, pin) {
+  // set presentation, type and value type
+  setPresentation(S_RAIN);
+  setType(V_RAIN);
+  setValueType(TYPE_FLOAT);
+
+}
+
+// initialize static variables
+long SensorRainGauge::_last_tip = 0;
+long SensorRainGauge::_count = 0;
+
+// setter/getter
+void SensorRainGauge::setReportInterval(int value) {
+  _report_interval = value;
+}
+void SensorRainGauge::setSingleTip(float value) {
+  _single_tip = value;
+}
+
+// what to do during before
+void SensorRainGauge::onBefore() {
+  // set the pin as input and enabled pull up
+  pinMode(_pin, INPUT_PULLUP);
+  // attach to the pin's interrupt and execute the routine on falling
+  attachInterrupt(digitalPinToInterrupt(_pin), _onTipped, FALLING);
+}
+
+// what to do during setup
+void SensorRainGauge::onSetup() {
+}
+
+// what to do when when receiving an interrupt
+void SensorRainGauge::_onTipped() {
+  long now = millis();
+  // on tipping, two consecutive interrupts are received, ignore the second one
+  if ( (now - _last_tip > 100) || (now < _last_tip) ){
+    // increase the counter
+    _count++;
+    #if DEBUG == 1
+      Serial.println(F("RAIN+"));
+    #endif
+  }
+  _last_tip = now;
+}
+
+// what to do during loop
+void SensorRainGauge::onLoop() {
+  // avoid reporting the same value multiple times
+  _value_float = -1;
+  long now = millis();
+  // time elapsed since the last report
+  long elapsed = now - _last_report;
+  // minimum time interval between reports
+  long min_interval = ((long)_report_interval*1000)*60;
+  // time to report or millis() reset
+  if ( (elapsed > min_interval) || (now < _last_report)) {
+    // report the total amount of rain for the last period
+    _value_float = _count*_single_tip;
+    #if DEBUG == 1
+      Serial.print(F("RAIN I="));
+      Serial.print(_child_id);
+      Serial.print(F(" T="));
+      Serial.println(_value_float);
+    #endif
+    // reset the counters
+    _count = 0;
+    _last_report = now;
+  }
+}
+
+// what to do as the main task when receiving a message
+void SensorRainGauge::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_REQ) {
+    // report the total amount of rain for the last period
+    _value_float = _count*_single_tip;    
+  }
+}
+
 
 /*
  * SensorMQ
@@ -555,18 +720,18 @@ void SensorMQ::setSmokeCurve(float *value) {
   _SmokeCurve[2] = value[2];
 }
 
-// what do to during before
+// what to do during before
 void SensorMQ::onBefore() {
   // prepare the pin for input
   pinMode(_pin, INPUT);
 }
 
-// what do to during setup
+// what to do during setup
 void SensorMQ::onSetup() {
   _ro = _MQCalibration();
 }
 
-// what do to during loop
+// what to do during loop
 void SensorMQ::onLoop() {
   if (_pin == -1) return;
   // calculate rs/ro
@@ -596,9 +761,9 @@ void SensorMQ::onLoop() {
   _value_int = (int16_t)ceil(value);
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorMQ::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 // returns the calculated sensor resistance
@@ -613,7 +778,7 @@ float SensorMQ::_MQCalibration() {
   //take multiple samples
   for (i=0; i< _calibration_sample_times; i++) {  
     val += _MQResistanceCalculation(analogRead(_pin));
-    delay(_calibration_sample_interval);
+    wait(_calibration_sample_interval);
   }
   //calculate the average value
   val = val/_calibration_sample_times;                   
@@ -629,7 +794,7 @@ float SensorMQ::_MQRead() {
   float rs=0;
   for (i=0; i<_read_sample_times; i++) {
     rs += _MQResistanceCalculation(analogRead(_pin));
-    delay(_read_sample_interval);
+    wait(_read_sample_interval);
   }
   rs = rs/_read_sample_times;
   return rs;
@@ -661,17 +826,17 @@ int SensorMQ::_MQGetPercentage(float rs_ro_ratio, float *pcurve) {
 SensorDigitalInput::SensorDigitalInput(int child_id, int pin): Sensor(child_id, pin) {
 }
 
-// what do to during before
+// what to do during before
 void SensorDigitalInput::onBefore() {
   // set the pin for input
   pinMode(_pin, INPUT);
 }
 
-// what do to during setup
+// what to do during setup
 void SensorDigitalInput::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorDigitalInput::onLoop() {
   // read the value
   int value = digitalRead(_pin);
@@ -687,9 +852,9 @@ void SensorDigitalInput::onLoop() {
   _value_int = value;
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorDigitalInput::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 
@@ -701,16 +866,17 @@ void SensorDigitalInput::onReceive(const MyMessage & message) {
 SensorDigitalOutput::SensorDigitalOutput(int child_id, int pin): Sensor(child_id, pin) {
 }
 
-// what do to during before
+// what to do during before
 void SensorDigitalOutput::onBefore() {
   // set the pin as output and initialize it accordingly
   pinMode(_pin, OUTPUT);
-  digitalWrite(_pin, _initial_value == LOW ? LOW : HIGH);
+  _state = _initial_value == LOW ? LOW : HIGH;
+  digitalWrite(_pin, _state);
   // the initial value is now the current value
   _value_int = _initial_value;
 }
 
-// what do to during setup
+// what to do during setup
 void SensorDigitalOutput::onSetup() {
 }
 
@@ -721,38 +887,56 @@ void SensorDigitalOutput::setInitialValue(int value) {
 void SensorDigitalOutput::setPulseWidth(int value) {
   _pulse_width = value;
 }
+void SensorDigitalOutput::setOnValue(int value) {
+  _on_value = value;
+}
+void SensorDigitalOutput::setLegacyMode(bool value) {
+  _legacy_mode = value;
+}
 
 // main task
 void SensorDigitalOutput::onLoop() {
   // do nothing on loop
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorDigitalOutput::onReceive(const MyMessage & message) {
-  // retrieve from the message the value to set
-  int value = message.getInt();
-  if (value != 0 && value != 1) return;
-  #if DEBUG == 1
-    Serial.print(F("DOUT I="));
-    Serial.print(_child_id);
-    Serial.print(F(" P="));
-    Serial.print(_pin);
-    Serial.print(F(" S="));
-    Serial.print(_initial_value);
-    Serial.print(F(" V="));
-    Serial.print(value);
-    Serial.print(F(" P="));
-    Serial.println(_pulse_width);
-  #endif
-  // set the value
-  digitalWrite(_pin, value);
-  if (_pulse_width > 0) {
-    // if this is a pulse output, restore the value to the original value after the pulse
-    wait(_pulse_width);
-    digitalWrite(_pin, value == 0 ? HIGH: LOW);
+  // by default handle a SET message but when legacy mode is set when a REQ message is expected instead
+  if ( (message.getCommand() == C_SET && ! _legacy_mode) || (message.getCommand() == C_REQ && _legacy_mode)) {
+    // retrieve from the message the value to set
+    int value = message.getInt();
+    if (value != 0 && value != 1) return;
+    #if DEBUG == 1
+      Serial.print(F("DOUT I="));
+      Serial.print(_child_id);
+      Serial.print(F(" P="));
+      Serial.print(_pin);
+      Serial.print(F(" V="));
+      Serial.print(value);
+      Serial.print(F(" P="));
+      Serial.println(_pulse_width);
+    #endif
+    // reverse the value if needed
+    int value_to_write = value;
+    if (_on_value == LOW) {
+      if (value == HIGH) value_to_write = LOW;
+      if (value == LOW) value_to_write = HIGH;
+    }
+    // set the value
+    digitalWrite(_pin, value_to_write);
+    if (_pulse_width > 0) {
+      // if this is a pulse output, restore the value to the original value after the pulse
+      wait(_pulse_width);
+      digitalWrite(_pin, value_to_write == 0 ? HIGH: LOW);
+    }
+    // store the current value so it will be sent to the controller
+    _state = value;
+    _value_int = value;
   }
-  // store the current value
-  _value_int = value;
+  if (message.getCommand() == C_REQ && ! _legacy_mode) {
+    // return the current status
+    _value_int = _state;
+  }
 }
 
 /*
@@ -790,16 +974,15 @@ SensorLatchingRelay::SensorLatchingRelay(int child_id, int pin): SensorRelay(chi
 SensorDHT::SensorDHT(int child_id, int pin, DHT* dht, int sensor_type, int dht_type): Sensor(child_id, pin) {
   // store the dht object
   _dht = dht;
-  // store the sensor type (0: temperature, 1: humidity)
   _sensor_type = sensor_type;
   _dht_type = dht_type;
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorDHT::TEMPERATURE) {
     // temperature sensor
     setPresentation(S_TEMP);
     setType(V_TEMP);
     setValueType(TYPE_FLOAT);
   }
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorDHT::HUMIDITY) {
     // humidity sensor
     setPresentation(S_HUM);
     setType(V_HUM);
@@ -807,20 +990,20 @@ SensorDHT::SensorDHT(int child_id, int pin, DHT* dht, int sensor_type, int dht_t
   }
 }
 
-// what do to during before
+// what to do during before
 void SensorDHT::onBefore() {
     // initialize the dht library
     _dht->begin();
 }
 
-// what do to during setup
+// what to do during setup
 void SensorDHT::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorDHT::onLoop() {
   // temperature sensor
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorDHT::TEMPERATURE) {
     // read the temperature
     float temperature = _dht->readTemperature();
     // convert it
@@ -835,7 +1018,7 @@ void SensorDHT::onLoop() {
     if (! isnan(temperature)) _value_float = temperature;
   }
   // humidity sensor
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorDHT::HUMIDITY) {
     // read humidity
     float humidity = _dht->readHumidity();
     if (isnan(humidity)) return;
@@ -850,9 +1033,9 @@ void SensorDHT::onLoop() {
   }
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorDHT::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 #endif
 
@@ -864,13 +1047,13 @@ void SensorDHT::onReceive(const MyMessage & message) {
 SensorSHT21::SensorSHT21(int child_id, int sensor_type): Sensor(child_id,A2) {
   // store the sensor type (0: temperature, 1: humidity)
   _sensor_type = sensor_type;
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorSHT21::TEMPERATURE) {
     // temperature sensor
     setPresentation(S_TEMP);
     setType(V_TEMP);
     setValueType(TYPE_FLOAT);
   }
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorSHT21::HUMIDITY) {
     // humidity sensor
     setPresentation(S_HUM);
     setType(V_HUM);
@@ -878,20 +1061,20 @@ SensorSHT21::SensorSHT21(int child_id, int sensor_type): Sensor(child_id,A2) {
   }
 }
 
-// what do to during before
+// what to do during before
 void SensorSHT21::onBefore() {
   // initialize the library
   Wire.begin();
 }
 
-// what do to during setup
+// what to do during setup
 void SensorSHT21::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorSHT21::onLoop() {
   // temperature sensor
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorSHT21::TEMPERATURE) {
     // read the temperature
     float temperature = SHT2x.GetTemperature();
     // convert it
@@ -906,7 +1089,7 @@ void SensorSHT21::onLoop() {
     if (! isnan(temperature)) _value_float = temperature;
   }
   // Humidity Sensor
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorSHT21::HUMIDITY) {
     // read humidity
     float humidity = SHT2x.GetHumidity();
     if (isnan(humidity)) return;
@@ -921,9 +1104,9 @@ void SensorSHT21::onLoop() {
   }
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorSHT21::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 #endif
 
@@ -963,18 +1146,18 @@ int SensorSwitch::getInitial() {
   return _initial;
 }
 
-// what do to during before
+// what to do during before
 void SensorSwitch::onBefore() {
   // initialize the value
   if (_mode == RISING) _value_int = LOW;
   else if (_mode == FALLING) _value_int = HIGH;
 }
 
-// what do to during setup
+// what to do during setup
 void SensorSwitch::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorSwitch::onLoop() {
   // wait to ensure the the input is not floating
   if (_debounce > 0) wait(_debounce);
@@ -998,9 +1181,9 @@ void SensorSwitch::onLoop() {
     _value_int = -1;
   }
 }
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorSwitch::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 /*
@@ -1036,18 +1219,25 @@ SensorDs18b20::SensorDs18b20(int child_id, int pin, DallasTemperature* sensors, 
   _sensors->getAddress(_device_address, index);
 }
 
-// what do to during before
+// what to do during before
 void SensorDs18b20::onBefore() {
 }
 
-// what do to during setup
+// what to do during setup
 void SensorDs18b20::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorDs18b20::onLoop() {
+  // do not wait for conversion, will sleep manually during it
+  if (_sleep_during_conversion) _sensors->setWaitForConversion(false);
   // request the temperature
   _sensors->requestTemperatures();
+  if (_sleep_during_conversion) {
+    // calculate conversion time and sleep
+    int16_t conversion_time = _sensors->millisToWaitForConversion(_sensors->getResolution());
+    sleep(conversion_time);
+  }
   // read the temperature
   float temperature = _sensors->getTempCByIndex(_index);
   // convert it
@@ -1062,9 +1252,9 @@ void SensorDs18b20::onLoop() {
   _value_float = temperature;
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorDs18b20::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 
 // function to print a device address
@@ -1082,6 +1272,11 @@ void SensorDs18b20::setResolution(int value) {
    _sensors->setResolution(_device_address, value);
 }
 
+// sleep while DS18B20 calculates temperature
+void SensorDs18b20::setSleepDuringConversion(bool value) {
+   _sleep_during_conversion = value;
+}
+
 #endif
 
 /*
@@ -1095,16 +1290,16 @@ SensorBH1750::SensorBH1750(int child_id): Sensor(child_id,A4) {
   _lightSensor = new BH1750();
 }
 
-// what do to during before
+// what to do during before
 void SensorBH1750::onBefore() {
   _lightSensor->begin();
 }
 
-// what do to during setup
+// what to do during setup
 void SensorBH1750::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorBH1750::onLoop() {
   // request the light level
   _value_int = _lightSensor->readLightLevel();
@@ -1116,9 +1311,9 @@ void SensorBH1750::onLoop() {
   #endif
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorBH1750::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 #endif
 
@@ -1128,7 +1323,6 @@ void SensorBH1750::onReceive(const MyMessage & message) {
 #if MODULE_MLX90614 == 1
 // contructor
 SensorMLX90614::SensorMLX90614(int child_id, Adafruit_MLX90614* mlx, int sensor_type): Sensor(child_id,A4) {
-  // store the sensor type (0: ambient, 1: object)
   _sensor_type = sensor_type;
   _mlx = mlx;
   // set presentation and type
@@ -1137,19 +1331,19 @@ SensorMLX90614::SensorMLX90614(int child_id, Adafruit_MLX90614* mlx, int sensor_
   setValueType(TYPE_FLOAT);
 }
 
-// what do to during before
+// what to do during before
 void SensorMLX90614::onBefore() {
   // initialize the library
   _mlx->begin();
 }
 
-// what do to during setup
+// what to do during setup
 void SensorMLX90614::onSetup() {
 }
 
-// what do to during loop
+// what to do during loop
 void SensorMLX90614::onLoop() {
-  float temperature = _sensor_type == 0 ? _mlx->readAmbientTempC() : _mlx->readObjectTempC();
+  float temperature = _sensor_type == SensorMLX90614::TEMPERATURE_OBJECT ? _mlx->readAmbientTempC() : _mlx->readObjectTempC();
   // convert it
   if (! getControllerConfig().isMetric) temperature = temperature * 1.8 + 32;
   #if DEBUG == 1
@@ -1161,53 +1355,190 @@ void SensorMLX90614::onLoop() {
   if (! isnan(temperature)) _value_float = temperature;
 }
 
-// what do to as the main task when receiving a message
+// what to do as the main task when receiving a message
 void SensorMLX90614::onReceive(const MyMessage & message) {
-  onLoop();
+  if (message.getCommand() == C_REQ) onLoop();
 }
 #endif
 
 
 /*
-   SensorBME280
+   SensorBosch
 */
-#if MODULE_BME280 == 1
+#if MODULE_BME280 == 1 || MODULE_BMP085 == 1
 // contructor
-SensorBME280::SensorBME280(int child_id, Adafruit_BME280* bme, int sensor_type): Sensor(child_id,A4) {
-  // store the sensor type (0: temperature, 1: humidity, 2: pressure)
+SensorBosch::SensorBosch(int child_id, int sensor_type): Sensor(child_id,A4) {
   _sensor_type = sensor_type;
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorBosch::TEMPERATURE) {
     // temperature sensor
     setPresentation(S_TEMP);
     setType(V_TEMP);
     setValueType(TYPE_FLOAT);
   }
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorBosch::HUMIDITY) {
     // humidity sensor
     setPresentation(S_HUM);
     setType(V_HUM);
     setValueType(TYPE_FLOAT);
   }
-  else if (_sensor_type == 2) {
+  else if (_sensor_type == SensorBosch::PRESSURE) {
     // pressure sensor
     setPresentation(S_BARO);
     setType(V_PRESSURE);
     setValueType(TYPE_FLOAT);
   }
+  else if (_sensor_type == SensorBosch::FORECAST) {
+    // pressure sensor
+    setPresentation(S_BARO);
+    setType(V_FORECAST);
+    setValueType(TYPE_STRING);
+  }
 }
 
-// what do to during before
-void SensorBME280::onBefore() {
+// setter/getter
+void SensorBosch::setForecastSamplesCount(int value) {
+  _forecast_samples_count = value;
 }
 
-// what do to during setup
-void SensorBME280::onSetup() {
+// what to do during before
+void SensorBosch::onBefore() {
+  // initialize the forecast samples array
+  _forecast_samples = new float[_forecast_samples_count];
 }
 
-// what do to during loop
+// what to do during setup
+void SensorBosch::onSetup() {
+}
+
+// what to do during loop
+void SensorBosch::onLoop() {
+}
+
+// what to do as the main task when receiving a message
+void SensorBosch::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_REQ) onLoop();
+}
+
+
+void SensorBosch::_forecast(float pressure) {
+  if (isnan(pressure)) return;
+  // Calculate the average of the last n minutes.
+  int index = _minute_count % _forecast_samples_count;
+  _forecast_samples[index] = pressure;
+  _minute_count++;
+  if (_minute_count > 185) _minute_count = 6;
+  if (_minute_count == 5) _pressure_avg = _getLastPressureSamplesAverage();
+  else if (_minute_count == 35) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    // first time initial 3 hour
+    if (_first_round) _dP_dt = change * 2; // note this is for t = 0.5hour
+    else _dP_dt = change / 1.5; // divide by 1.5 as this is the difference in time from 0 value.
+  }
+  else if (_minute_count == 65) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    //first time initial 3 hour
+    if (_first_round) _dP_dt = change; //note this is for t = 1 hour
+    else _dP_dt = change / 2; //divide by 2 as this is the difference in time from 0 value
+  }
+  else if (_minute_count == 95) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    // first time initial 3 hour
+    if (_first_round)_dP_dt = change / 1.5; // note this is for t = 1.5 hour
+    else _dP_dt = change / 2.5; // divide by 2.5 as this is the difference in time from 0 value
+  }
+  else if (_minute_count == 125) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    // store for later use.
+    _pressure_avg2 = last_pressure_avg; 
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    if (_first_round) _dP_dt = change / 2; // note this is for t = 2 hour
+    else _dP_dt = change / 3; // divide by 3 as this is the difference in time from 0 value
+  }
+  else if (_minute_count == 155) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    if (_first_round) _dP_dt = change / 2.5; // note this is for t = 2.5 hour
+    else _dP_dt = change / 3.5; // divide by 3.5 as this is the difference in time from 0 value
+  }
+  else if (_minute_count == 185) {
+    float last_pressure_avg = _getLastPressureSamplesAverage();
+    float change = (last_pressure_avg - _pressure_avg) * 0.1;
+    if (_first_round) _dP_dt = change / 3; // note this is for t = 3 hour
+    else _dP_dt = change / 4; // divide by 4 as this is the difference in time from 0 value
+  }
+  // Equating the pressure at 0 to the pressure at 2 hour after 3 hours have past.
+  _pressure_avg = _pressure_avg2; 
+  // flag to let you know that this is on the past 3 hour mark. Initialized to 0 outside main loop.
+  _first_round = false; 
+  // calculate the forecast (STABLE = 0, SUNNY = 1, CLOUDY = 2, UNSTABLE = 3, THUNDERSTORM = 4, UNKNOWN = 5)
+  int forecast = 5;
+  //if time is less than 35 min on the first 3 hour interval.
+  if (_minute_count < 35 && _first_round) forecast = 5;
+  else if (_dP_dt < (-0.25)) forecast = 5;
+  else if (_dP_dt > 0.25) forecast = 4;
+  else if ((_dP_dt > (-0.25)) && (_dP_dt < (-0.05))) forecast = 2;
+  else if ((_dP_dt > 0.05) && (_dP_dt < 0.25)) forecast = 1;
+  else if ((_dP_dt >(-0.05)) && (_dP_dt < 0.05)) forecast = 0;
+  else forecast = 5;
+  _value_string = _weather[forecast];
+  #if DEBUG == 1
+    Serial.print(F("BMP I="));
+    Serial.print(_child_id);
+    Serial.print(F(" M="));
+    Serial.print(_minute_count);
+    Serial.print(F(" dP="));
+    Serial.print(_dP_dt);
+    Serial.print(F(" F="));
+    Serial.println(_value_string);
+  #endif
+}
+
+// returns the average of the latest pressure samples
+float SensorBosch::_getLastPressureSamplesAverage() {
+  float avg = 0;
+  for (int i = 0; i < _forecast_samples_count; i++) avg += _forecast_samples[i];
+  avg /= _forecast_samples_count;
+  return avg;
+}
+
+// search for a given chip on i2c bus
+uint8_t SensorBosch::GetI2CAddress(uint8_t chip_id) {
+  uint8_t addresses[] = {0x77, 0x76};
+  uint8_t register_address = 0xD0;
+  for (int i = 0; i <= sizeof(addresses); i++) { 
+    uint8_t i2c_address = addresses[i];
+    uint8_t value;
+    Wire.beginTransmission((uint8_t)i2c_address);
+    Wire.write((uint8_t)register_address);
+    Wire.endTransmission();
+    Wire.requestFrom((uint8_t)i2c_address, (byte)1);
+    value = Wire.read();
+    if (value == chip_id) {
+      #if DEBUG == 1
+        Serial.print(F("I2C=")); 
+        Serial.println(i2c_address);
+      #endif
+      return i2c_address;
+    }
+  }
+  return addresses[0]; 
+}
+#endif
+
+/*
+ * SensorBME280
+ */
+#if MODULE_BME280 == 1
+SensorBME280::SensorBME280(int child_id, Adafruit_BME280* bme, int sensor_type): SensorBosch(child_id,sensor_type) {
+  _bme = bme;
+}
+
 void SensorBME280::onLoop() {
   // temperature sensor
-  if (_sensor_type == 0) {
+  if (_sensor_type == SensorBME280::TEMPERATURE) {
     // read the temperature
     float temperature = _bme->readTemperature();
     // convert it
@@ -1218,26 +1549,27 @@ void SensorBME280::onLoop() {
       Serial.print(F(" T="));
       Serial.println(temperature);
     #endif
+    if (isnan(temperature)) return;
     // store the value
-    if (! isnan(temperature)) _value_float = temperature;
+    _value_float = temperature;
   }
   // Humidity Sensor
-  else if (_sensor_type == 1) {
+  else if (_sensor_type == SensorBME280::HUMIDITY) {
     // read humidity
     float humidity = _bme->readHumidity();
-    if (isnan(humidity)) return;
     #if DEBUG == 1
       Serial.print(F("BME I="));
       Serial.print(_child_id);
       Serial.print(F(" H="));
       Serial.println(humidity);
     #endif
+    if (isnan(humidity)) return;
     // store the value
-    if (! isnan(humidity)) _value_float = humidity;
+    _value_float = humidity;
   }
   // Pressure Sensor
-  else if (_sensor_type == 2) {
-    // read humidity
+  else if (_sensor_type == SensorBME280::PRESSURE) {
+    // read pressure
     float pressure = _bme->readPressure() / 100.0F;
     if (isnan(pressure)) return;
     #if DEBUG == 1
@@ -1246,18 +1578,260 @@ void SensorBME280::onLoop() {
       Serial.print(F(" P="));
       Serial.println(pressure);
     #endif
+    if (isnan(pressure)) return;
     // store the value
-    if (! isnan(pressure)) _value_float = pressure;
+    _value_float = pressure;
+  }
+  // Forecast Sensor
+  else if (_sensor_type == SensorBME280::FORECAST) {
+    float pressure = _bme->readPressure() / 100.0F;
+    _forecast(pressure);
   }
 }
+#endif
 
-// what do to as the main task when receiving a message
-void SensorBME280::onReceive(const MyMessage & message) {
-  onLoop();
+/*
+   SensorBMP085
+*/
+#if MODULE_BMP085 == 1
+// contructor
+SensorBMP085::SensorBMP085(int child_id, Adafruit_BMP085* bmp, int sensor_type): SensorBosch(child_id,sensor_type) {
+  _bmp = bmp;
+}
+
+// what to do during loop
+void SensorBMP085::onLoop() {
+  // temperature sensor
+  if (_sensor_type == SensorBMP085::TEMPERATURE) {
+    // read the temperature
+    float temperature = _bmp->readTemperature();
+    // convert it
+    if (! getControllerConfig().isMetric) temperature = temperature * 1.8 + 32;
+    #if DEBUG == 1
+      Serial.print(F("BMP I="));
+      Serial.print(_child_id);
+      Serial.print(F(" T="));
+      Serial.println(temperature);
+    #endif
+    if (isnan(temperature)) return;
+    // store the value
+    _value_float = temperature;
+  }
+  // Pressure Sensor
+  else if (_sensor_type == SensorBMP085::PRESSURE) {
+    // read pressure
+    float pressure = _bmp->readPressure() / 100.0F;
+    #if DEBUG == 1
+      Serial.print(F("BMP I="));
+      Serial.print(_child_id);
+      Serial.print(F(" P="));
+      Serial.println(pressure);
+    #endif
+    if (isnan(pressure)) return;
+    // store the value
+    _value_float = pressure;
+  }
+  // Forecast Sensor
+  else if (_sensor_type == SensorBMP085::FORECAST) {
+    float pressure = _bmp->readPressure() / 100.0F;
+    _forecast(pressure);    
+  }
 }
 #endif
 
 
+/*
+   SensorSonoff
+*/
+#if MODULE_SONOFF == 1
+// contructor
+SensorSonoff::SensorSonoff(int child_id): Sensor(child_id,1) {
+  setPresentation(S_BINARY);
+  setType(V_STATUS);
+}
+
+// setter/getter
+void SensorSonoff::setButtonPin(int value) {
+    _button_pin = value;
+}
+void SensorSonoff::setRelayPin(int value) {
+    _relay_pin = value;
+}
+void SensorSonoff::setLedPin(int value) {
+    _led_pin = value;
+}
+
+// what to do during before
+void SensorSonoff::onBefore() {
+}
+
+// what to do during setup
+void SensorSonoff::onSetup() {
+  // Setup the button
+  pinMode(_button_pin, INPUT_PULLUP);
+  // After setting up the button, setup debouncer
+  _debouncer.attach(_button_pin);
+  _debouncer.interval(5);
+  // Make sure relays and LED are off when starting up
+  digitalWrite(_relay_pin, _relay_off);
+  digitalWrite(_led_pin, _led_off);
+  // Then set relay pins in output mode
+  pinMode(_relay_pin, OUTPUT);
+  pinMode(_led_pin, OUTPUT);
+  _blink();
+}
+
+// what to do during loop
+void SensorSonoff::onLoop() {
+  // set the value to -1 so to avoid reporting to the gateway during loop
+  _value_int = -1;
+  _debouncer.update();
+  // Get the update value from the button
+  int value = _debouncer.read();
+  if (value != _old_value && value == 0) {
+    // button pressed, toggle the state
+    _toggle();
+  }
+  _old_value = value;
+}
+
+// what to do as the main task when receiving a message
+void SensorSonoff::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_SET) {
+    // retrieve from the message the value to set
+    int value = message.getInt();
+    if (value != 0 && value != 1 || value == _state) return;
+    // toggle the state
+    _toggle();
+  }
+  if (message.getCommand() == C_REQ) {
+    // return the current state
+    _value_int = _state;
+  }
+}
+
+// toggle the state
+void SensorSonoff::_toggle() {
+  // toggle the state
+  _state = _state ? false : true;
+  // Change relay state
+  digitalWrite(_relay_pin, _state? _relay_on: _relay_off);
+  // Change LED state
+  digitalWrite(_led_pin, _state? _led_on: _led_off);
+  #if DEBUG == 1
+    Serial.print(F("SONOFF I="));
+    Serial.print(_child_id);
+    Serial.print(F(" V="));
+    Serial.println(_state);
+  #endif
+  _value_int = _state;
+}
+
+// blink the led
+void SensorSonoff::_blink() {
+  digitalWrite(_led_pin, digitalRead(_led_pin) ? _led_on : _led_off);
+  wait(200);
+  digitalWrite(_led_pin, digitalRead(_led_pin) ? _led_on : _led_off);
+  wait(200);
+  digitalWrite(_led_pin, digitalRead(_led_pin) ? _led_on : _led_off);
+  wait(200);
+  digitalWrite(_led_pin, digitalRead(_led_pin) ? _led_on : _led_off);
+}
+#endif
+
+
+/*
+   SensorHCSR04
+*/
+#if MODULE_HCSR04 == 1
+// contructor
+SensorHCSR04::SensorHCSR04(int child_id, int pin): Sensor(child_id, pin) {
+  // set presentation and type
+  setPresentation(S_DISTANCE);
+  setType(V_DISTANCE);
+  _trigger_pin = pin;
+  _echo_pin = pin;
+}
+
+// what to do during before
+void SensorHCSR04::onBefore() {
+  // initialize the library
+  _sonar = new NewPing(_trigger_pin,_echo_pin,_max_distance);
+}
+
+// setter/getter
+void SensorHCSR04::setTriggerPin(int value) {
+  _trigger_pin = value;
+}
+void SensorHCSR04::setEchoPin(int value) {
+  _echo_pin = value;
+}
+void SensorHCSR04::setMaxDistance(int value) {
+  _max_distance = value;
+}
+
+// what to do during setup
+void SensorHCSR04::onSetup() {
+}
+
+// what to do during loop
+void SensorHCSR04::onLoop() {
+  int distance = getControllerConfig().isMetric ? _sonar->ping_cm() : _sonar->ping_in();
+  #if DEBUG == 1
+    Serial.print(F("HC I="));
+    Serial.print(_child_id);
+    Serial.print(F(" D="));
+    Serial.println(distance);
+  #endif
+  _value_int = distance;
+}
+
+// what to do as the main task when receiving a message
+void SensorHCSR04::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_REQ) onLoop();
+}
+#endif
+
+/*
+   SensorMCP9808
+*/
+#if MODULE_MCP9808 == 1
+// contructor
+SensorMCP9808::SensorMCP9808(int child_id, Adafruit_MCP9808* mcp): Sensor(child_id,A2) {
+  _mcp = mcp;
+  setPresentation(S_TEMP);
+  setType(V_TEMP);
+  setValueType(TYPE_FLOAT);
+}
+
+// what to do during before
+void SensorMCP9808::onBefore() {
+}
+
+// what to do during setup
+void SensorMCP9808::onSetup() {
+}
+
+// what to do during loop
+void SensorMCP9808::onLoop() {
+  float temperature = _mcp->readTempC();
+  // convert it
+  if (! getControllerConfig().isMetric) temperature = temperature * 1.8 + 32;
+  #if DEBUG == 1
+    Serial.print(F("MCP I="));
+    Serial.print(_child_id);
+    Serial.print(F(" T="));
+    Serial.println(temperature);
+  #endif
+  // store the value
+  if (! isnan(temperature)) _value_float = temperature;
+}
+
+// what to do as the main task when receiving a message
+void SensorMCP9808::onReceive(const MyMessage & message) {
+  if (message.getCommand() == C_REQ) onLoop();
+}
+#endif
 
 /*******************************************
    NodeManager
@@ -1270,9 +1844,6 @@ NodeManager::NodeManager() {
 }
 
 // setter/getter
-void NodeManager::setRebootPin(int value) {
-    _reboot_pin = value;
-}
 void NodeManager::setRetries(int value) {
   _retries = value;
 }
@@ -1299,25 +1870,26 @@ void NodeManager::setRetries(int value) {
     _battery_report_with_interrupt = value;
   }
 #endif
-#if SLEEP_MANAGER == 1
-  void NodeManager::setSleepMode(int value) {
-    _sleep_mode = value;
-  }
-  void NodeManager::setSleepTime(int value) {
-    _sleep_time = value;
-  }
-  void NodeManager::setSleepUnit(int value) {
-    _sleep_unit = value;
-  }
-  void NodeManager::setSleep(int value1, int value2, int value3) {
-    _sleep_mode = value1;
-    _sleep_time = value2;
-    _sleep_unit = value3;
-  }
-  void NodeManager::setSleepInterruptPin(int value) {
-    _sleep_interrupt_pin = value;
-  }
-#endif
+void NodeManager::setSleepMode(int value) {
+  _sleep_mode = value;
+}
+void NodeManager::setMode(int value) {
+  setSleepMode(value);
+}
+void NodeManager::setSleepTime(int value) {
+  _sleep_time = value;
+}
+void NodeManager::setSleepUnit(int value) {
+  _sleep_unit = value;
+}
+void NodeManager::setSleep(int value1, int value2, int value3) {
+  _sleep_mode = value1;
+  _sleep_time = value2;
+  _sleep_unit = value3;
+}
+void NodeManager::setSleepInterruptPin(int value) {
+  _sleep_interrupt_pin = value;
+}
 void NodeManager::setInterrupt(int pin, int mode, int pull) {
   if (pin == INTERRUPT_PIN_1) {
     _interrupt_1_mode = mode;
@@ -1345,6 +1917,9 @@ void NodeManager::setInterrupt(int pin, int mode, int pull) {
 void NodeManager::setSleepBetweenSend(int value) {
   _sleep_between_send = value;
 }
+void NodeManager::setAck(bool value) {
+    _ack = value;
+}
 
 // register a sensor to this manager
 int NodeManager::registerSensor(int sensor_type, int pin, int child_id) {
@@ -1358,6 +1933,8 @@ int NodeManager::registerSensor(int sensor_type, int pin, int child_id) {
     else if (sensor_type == SENSOR_THERMISTOR) return registerSensor(new SensorThermistor(child_id, pin));
     else if (sensor_type == SENSOR_MQ) return registerSensor(new SensorMQ(child_id, pin));
     else if (sensor_type == SENSOR_ML8511) return registerSensor(new SensorML8511(child_id, pin));
+    else if (sensor_type == SENSOR_ACS712) return registerSensor(new SensorACS712(child_id, pin));
+    else if (sensor_type == SENSOR_RAIN_GAUGE) return registerSensor(new SensorRainGauge(child_id, pin));
   #endif
   #if MODULE_DIGITAL_INPUT == 1
     else if (sensor_type == SENSOR_DIGITAL_INPUT) return registerSensor(new SensorDigitalInput(child_id, pin));
@@ -1371,34 +1948,41 @@ int NodeManager::registerSensor(int sensor_type, int pin, int child_id) {
     else if (sensor_type == SENSOR_DHT11 || sensor_type == SENSOR_DHT22) {
       int dht_type = sensor_type == SENSOR_DHT11 ? DHT11 : DHT22;
       DHT* dht = new DHT(pin,dht_type);
-      registerSensor(new SensorDHT(child_id,pin,dht,0,dht_type));
+      // register temperature sensor
+      registerSensor(new SensorDHT(child_id,pin,dht,SensorDHT::TEMPERATURE,dht_type));
+      // register humidity sensor
       child_id = _getAvailableChildId();
-      return registerSensor(new SensorDHT(child_id,pin,dht,1,dht_type));
+      return registerSensor(new SensorDHT(child_id,pin,dht,SensorDHT::HUMIDITY,dht_type));
     }
   #endif
   #if MODULE_SHT21 == 1
     else if (sensor_type == SENSOR_SHT21) {
-      registerSensor(new SensorSHT21(child_id,0));
+      // register temperature sensor
+      registerSensor(new SensorSHT21(child_id,SensorSHT21::TEMPERATURE));
+      // register humidity sensor
       child_id = _getAvailableChildId();
-      return registerSensor(new SensorSHT21(child_id,1));
+      return registerSensor(new SensorSHT21(child_id,SensorSHT21::HUMIDITY));
     }
     else if (sensor_type == SENSOR_HTU21D) {
-      registerSensor(new SensorHTU21D(child_id,0));
+      // register temperature sensor
+      registerSensor(new SensorHTU21D(child_id,SensorHTU21D::TEMPERATURE));
+      // register humidity sensor
       child_id = _getAvailableChildId();
-      return registerSensor(new SensorHTU21D(child_id,1));
+      return registerSensor(new SensorHTU21D(child_id,SensorHTU21D::HUMIDITY));
     }
   #endif
   #if MODULE_SWITCH == 1
     else if (sensor_type == SENSOR_SWITCH || sensor_type == SENSOR_DOOR || sensor_type == SENSOR_MOTION) {
       // ensure an interrupt pin is provided
-      if (pin != INTERRUPT_PIN_1 && pin != INTERRUPT_PIN_2) return;
+      if (pin != INTERRUPT_PIN_1 && pin != INTERRUPT_PIN_2) return -1;
       // register the sensor
       int index = 0;
       if (sensor_type == SENSOR_SWITCH) index = registerSensor(new SensorSwitch(child_id, pin));
       else if (sensor_type == SENSOR_DOOR) index = registerSensor(new SensorDoor(child_id, pin));
       else if (sensor_type == SENSOR_MOTION) index = registerSensor(new SensorMotion(child_id, pin));
-      // set an interrupt on the pin and activate internal pull up
+      // set an interrupt on the pin and set the initial value
       SensorSwitch* sensor = (SensorSwitch*)getSensor(index);
+      sensor->setInterruptPin(pin);
       setInterrupt(pin,sensor->getMode(),sensor->getInitial());
       return index;
     }
@@ -1427,25 +2011,75 @@ int NodeManager::registerSensor(int sensor_type, int pin, int child_id) {
   #if MODULE_MLX90614 == 1
     else if (sensor_type == SENSOR_MLX90614) {
       Adafruit_MLX90614* mlx = new Adafruit_MLX90614();
-      registerSensor(new SensorMLX90614(child_id,mlx,0));
+      // register ambient temperature sensor
+      registerSensor(new SensorMLX90614(child_id,mlx,SensorMLX90614::TEMPERATURE_AMBIENT));
+      // register object temperature sensor
       child_id = _getAvailableChildId();
-      return registerSensor(new SensorMLX90614(child_id,mlx,1));
+      return registerSensor(new SensorMLX90614(child_id,mlx,SensorMLX90614::TEMPERATURE_OBJECT));
     }
   #endif
   #if MODULE_BME280 == 1
     else if (sensor_type == SENSOR_BME280) {
       Adafruit_BME280* bme = new Adafruit_BME280();
-      if (! bme->begin()) {
+      if (! bme->begin(SensorBosch::GetI2CAddress(0x60))) {
         #if DEBUG == 1
           Serial.println(F("NO BME"));
         #endif
         return -1;
       }
-      registerSensor(new SensorBME280(child_id,bme,0));
+      // register temperature sensor
+      registerSensor(new SensorBME280(child_id,bme,SensorBME280::TEMPERATURE));
       child_id = _getAvailableChildId();
-      registerSensor(new SensorBME280(child_id,bme,1));
+      // register humidity sensor
+      registerSensor(new SensorBME280(child_id,bme,SensorBME280::HUMIDITY));
+      // register pressure sensor
       child_id = _getAvailableChildId();
-      return registerSensor(new SensorBME280(child_id,bme,2));
+      registerSensor(new SensorBME280(child_id,bme,SensorBME280::PRESSURE));
+      // register forecast sensor
+      child_id = _getAvailableChildId();
+      return registerSensor(new SensorBME280(child_id,bme,SensorBME280::FORECAST));
+    }
+  #endif
+  #if MODULE_SONOFF == 1
+    else if (sensor_type == SENSOR_SONOFF) {
+      return registerSensor(new SensorSonoff(child_id));
+    }
+  #endif
+  #if MODULE_BMP085 == 1
+    else if (sensor_type == SENSOR_BMP085) {
+      Adafruit_BMP085* bmp = new Adafruit_BMP085();
+      if (! bmp->begin(SensorBosch::GetI2CAddress(0x55))) {
+        #if DEBUG == 1
+          Serial.println(F("NO BMP"));
+        #endif
+        return -1;
+      }
+      // register temperature sensor
+      registerSensor(new SensorBMP085(child_id,bmp,SensorBMP085::TEMPERATURE));
+      // register pressure sensor
+      child_id = _getAvailableChildId();
+      registerSensor(new SensorBMP085(child_id,bmp,SensorBMP085::PRESSURE));
+      // register forecast sensor
+      child_id = _getAvailableChildId();
+      return registerSensor(new SensorBMP085(child_id,bmp,SensorBMP085::FORECAST));
+    }
+  #endif
+  #if MODULE_HCSR04 == 1
+    else if (sensor_type == SENSOR_HCSR04) {
+      return registerSensor(new SensorHCSR04(child_id, pin));
+    }
+  #endif
+  #if MODULE_MCP9808 == 1
+    else if (sensor_type == SENSOR_MCP9808) {
+      Adafruit_MCP9808 * mcp = new Adafruit_MCP9808();
+      if (! mcp->begin()) {
+        #if DEBUG == 1
+          Serial.println(F("NO MCP"));
+        #endif
+        return -1;
+      }
+      // register temperature sensor
+      registerSensor(new SensorMCP9808(child_id,mcp));
     }
   #endif
   else {
@@ -1479,6 +2113,12 @@ int NodeManager::registerSensor(Sensor* sensor) {
   return sensor->getChildId();
 }
 
+// un-register a sensor to this manager
+void NodeManager::unRegisterSensor(int sensor_index) {
+  // unlink the pointer to this sensor
+  _sensors[sensor_index] == 0;
+}
+
 // return a sensor given its index
 Sensor* NodeManager::get(int child_id) {
   // return a pointer to the sensor from the given child_id
@@ -1507,22 +2147,11 @@ void NodeManager::before() {
     Serial.print(F("NodeManager v"));
     Serial.println(VERSION);
   #endif
-  if (_reboot_pin > -1) {
-    #if DEBUG == 1
-      Serial.print(F("REB P="));
-      Serial.println(_reboot_pin);
-    #endif
-    // setup the reboot pin
-    pinMode(_reboot_pin, OUTPUT);
-    digitalWrite(_reboot_pin, HIGH);
+  // setup the sleep interrupt pin
+  if (_sleep_interrupt_pin > -1) {
+    // set the interrupt when the pin is connected to ground
+    setInterrupt(_sleep_interrupt_pin,FALLING,HIGH);
   }
-  #if SLEEP_MANAGER == 1
-    // setup the sleep interrupt pin
-    if (_sleep_interrupt_pin > -1) {
-      // set the interrupt when the pin is connected to ground
-      setInterrupt(_sleep_interrupt_pin,FALLING,HIGH);
-    }
-  #endif
   // setup the interrupt pins
   if (_interrupt_1_mode != MODE_NOT_DEFINED) {
     pinMode(INTERRUPT_PIN_1,INPUT);
@@ -1538,7 +2167,7 @@ void NodeManager::before() {
     Serial.print(F("INT2 M="));
     Serial.println(_interrupt_2_mode);
   #endif
-  #if REMOTE_CONFIGURATION == 1 && SLEEP_MANAGER == 1 && PERSIST == 1
+  #if REMOTE_CONFIGURATION == 1 && PERSIST == 1
     // restore sleep configuration from eeprom
     if (loadState(EEPROM_SLEEP_SAVED) == 1) {
       // sleep settings found in the eeprom, restore them
@@ -1559,7 +2188,7 @@ void NodeManager::before() {
       #endif
     }
   #endif
-  #if BATTERY_MANAGER == 1
+  #if BATTERY_MANAGER == 1 && !defined(MY_GATEWAY_ESP8266)
     // set analogReference to internal if measuring the battery through a pin
     if (! _battery_internal_vcc && _battery_pin > -1) analogReference(INTERNAL);
   #endif
@@ -1576,23 +2205,14 @@ void NodeManager::presentation() {
   #if DEBUG == 1
     Serial.println(F("RADIO OK"));
   #endif
+  // Send the sketch version information to the gateway and Controller
+  if (_sleep_between_send > 0) sleep(_sleep_between_send);
+  sendSketchInfo(SKETCH_NAME,SKETCH_VERSION);
   // present the service as a custom sensor to the controller
-  #if DEBUG == 1
-    Serial.print(F("PRES I="));
-    Serial.print(CONFIGURATION_CHILD_ID);
-    Serial.print(F(", T="));
-    Serial.println(S_CUSTOM);
-  #endif
-  present(CONFIGURATION_CHILD_ID, S_CUSTOM);
+  _present(CONFIGURATION_CHILD_ID, S_CUSTOM);
   #if BATTERY_MANAGER == 1 && BATTERY_SENSOR == 1
-    #if DEBUG == 1
-      Serial.print(F("PRES I="));
-      Serial.print(BATTERY_CHILD_ID);
-      Serial.print(F(", T="));
-      Serial.println(S_MULTIMETER);
-    #endif
     // present the battery service
-    present(BATTERY_CHILD_ID, S_MULTIMETER);
+    _present(BATTERY_CHILD_ID, S_MULTIMETER);
     // report battery level
     _process("BATTERY");
   #endif
@@ -1600,6 +2220,7 @@ void NodeManager::presentation() {
   for (int i = 0; i < 255; i++) {
     if (_sensors[i] == 0) continue;
     // call each sensor's presentation()
+    if (_sleep_between_send > 0) sleep(_sleep_between_send);
     _sensors[i]->presentation();
   }
   #if DEBUG == 1
@@ -1630,29 +2251,30 @@ void NodeManager::setup() {
 
 // run the main function for all the register sensors
 void NodeManager::loop() {
-  #if SLEEP_MANAGER == 1
-    MyMessage empty;
-    if (_sleep_mode != IDLE &&  _sleep_time != 0) {
-      #if POWER_MANAGER == 1
-        // turn on the pin powering all the sensors
-        if (_auto_power_pins) powerOn();
-      #endif
-      // run loop for all the registered sensors
-      for (int i = 0; i < 255; i++) {
-        if (_sensors[i] == 0) continue;
-        // call each sensor's loop()
-        _sensors[i]->loop(empty);
-      }
-      #if POWER_MANAGER == 1
-        // turn off the pin powering all the sensors
-        if (_auto_power_pins) powerOff();
-      #endif
-      #if SLEEP_MANAGER == 1
-        // continue/start sleeping as requested
-        _sleep();
-      #endif
+  MyMessage empty;
+  // if in idle mode, do nothing
+  if (_sleep_mode == IDLE) return;
+  // if sleep time is not set, do nothing
+  if ((_sleep_mode == SLEEP || _sleep_mode == WAIT) &&  _sleep_time == 0) return;
+    #if POWER_MANAGER == 1
+      // turn on the pin powering all the sensors
+      if (_auto_power_pins) powerOn();
+    #endif
+    // run loop for all the registered sensors
+    for (int i = 0; i < 255; i++) {
+      // skip not configured sensors
+      if (_sensors[i] == 0) continue;
+      // if waking up from an interrupt skip all the sensor without that interrupt configured
+      if (_last_interrupt_pin != -1 && _sensors[i]->getInterruptPin() != _last_interrupt_pin) continue;
+      // call each sensor's loop()
+      _sensors[i]->loop(empty);
     }
-  #endif
+    #if POWER_MANAGER == 1
+      // turn off the pin powering all the sensors
+      if (_auto_power_pins) powerOff();
+    #endif
+    // continue/start sleeping as requested
+    if (_sleep_mode == SLEEP || _sleep_mode == WAIT) _sleep();
 }
 
 // dispacth inbound messages
@@ -1666,7 +2288,7 @@ void NodeManager::receive(const MyMessage &message) {
     Serial.print(message.getCommand());
     Serial.print(F(" T="));
     Serial.print(message.type);
-    Serial.print(F(" D="));
+    Serial.print(F(" P="));
     Serial.println(message.getString());
   #endif
   // process incoming service messages
@@ -1674,7 +2296,7 @@ void NodeManager::receive(const MyMessage &message) {
     _process(message.getString());
   }
   // dispatch the message to the registered sensor
-  else if (message.getCommand() == C_REQ && _sensors[message.sensor] != 0) {
+  else if (_sensors[message.sensor] != 0) {
     #if POWER_MANAGER == 1
       // turn on the pin powering all the sensors
       if (_auto_power_pins) powerOn();
@@ -1688,12 +2310,38 @@ void NodeManager::receive(const MyMessage &message) {
   }
 }
 
+// request and return the current timestamp from the controller
+long NodeManager::getTimestamp() {
+  int retries = 3;
+  _timestamp = -1;
+  while (_timestamp == -1 && retries > 0) {
+    #if DEBUG == 1
+      Serial.println(F("TIME"));
+    #endif
+    // request the time to the controller
+    requestTime();
+    // keep asking every 1 second
+    wait(1000);
+    retries--;
+  }  
+  return _timestamp;
+}
+
+// receive the time from the controller and save it
+void NodeManager::receiveTime(unsigned long ts) {
+  _timestamp = ts;
+  #if DEBUG == 1
+    Serial.print(F("TIME T="));
+    Serial.print(_timestamp);
+  #endif
+}
+
 // send a message to the network
 void NodeManager::_send(MyMessage & message) {
   // send the message, multiple times if requested
   for (int i = 0; i < _retries; i++) {
     // if configured, sleep beetween each send
-    if (_sleep_between_send > 0) wait(_sleep_between_send);
+    if (_sleep_between_send > 0) sleep(_sleep_between_send);
     #if DEBUG == 1
       Serial.print(F("SEND D="));
       Serial.print(message.destination);
@@ -1710,7 +2358,7 @@ void NodeManager::_send(MyMessage & message) {
       Serial.print(F(" F="));
       Serial.println(message.getFloat());
     #endif
-    send(message);
+    send(message,_ack);
   }
 }
 
@@ -1743,18 +2391,25 @@ void NodeManager::_process(const char * message) {
         _send(battery_msg.set(volt, 2));
       #endif
       // report battery level percentage
-      sendBatteryLevel(percentage);
+      sendBatteryLevel(percentage,_ack);
     }
   #endif
-  // REBOOT: reboot the board
-  else if (strcmp(message, "REBOOT") == 0 && _reboot_pin > -1) {
-    #if DEBUG == 1
-      Serial.println(F("REBOOT"));
-    #endif
-    // set the reboot pin connected to RST to low so to reboot the board
-    _send(_msg.set(message));
-    digitalWrite(_reboot_pin, LOW);
-  }
+  #ifndef MY_GATEWAY_ESP8266
+    // REBOOT: reboot the board
+    else if (strcmp(message, "REBOOT") == 0) {
+      #if DEBUG == 1
+        Serial.println(F("REBOOT"));
+      #endif
+      // set the reboot pin connected to RST to low so to reboot the board
+      _send(_msg.set(message));
+      // Software reboot with watchdog timer. Enter Watchdog Configuration mode:
+      WDTCSR |= (1<<WDCE) | (1<<WDE);
+      // Reset enable
+      WDTCSR= (1<<WDE);
+      // Infinite loop until watchdog reset after 16 ms
+      while(true){}
+    }
+  #endif
   // CLEAR: clear the user's eeprom
   else if (strcmp(message, "CLEAR") == 0) {
     #if DEBUG == 1
@@ -1781,92 +2436,88 @@ void NodeManager::_process(const char * message) {
         Serial.print(F("MY I="));
         Serial.println(node_id);
       #endif
-      // Save static ID to eeprom
-      hwWriteConfig(EEPROM_NODE_ID_ADDRESS, (uint8_t)node_id);
-      // reboot the board
-      #if REBOOT_PIN == 1
-        _process(REBOOT);
+      #ifndef MY_GATEWAY_ESP8266
+        // Save static ID to eeprom
+        //hwWriteConfig(EEPROM_NODE_ID_ADDRESS, (uint8_t)node_id);
       #endif
+      // reboot the board
+      _process("REBOOT");
     }
-    #if SLEEP_MANAGER == 1
-      // MODEx: change the way the board behaves. 0: stay awake, 1: go to sleep for the configured interval, 2: wait for the configured interval (e.g. MODE1)
-      else if (strlen(message) == 5 && strncmp("MODE", message, strlen("MODE")) == 0) {
-        // extract mode
-        char s[2];
-        s[0] = message[4];
-        s[1] = '\0';
-        _sleep_mode = atoi(s);
-        #if DEBUG == 1
-          Serial.print(F("SLEEP M="));
-          Serial.println(_sleep_mode);
-        #endif
-        #if PERSIST == 1
-          // save it to the eeprom
-          saveState(EEPROM_SLEEP_SAVED, 1);
-          saveState(EEPROM_SLEEP_MODE, _sleep_mode);
-        #endif
-        _send(_msg.set(message));
-      }
-      // INTVLnnnX: set and save the wait/sleep interval to nnn where X is S=Seconds, M=mins, H=Hours, D=Days. E.g. INTVL010M would be 10 minutes
-      else if (strlen(message) == 9 && strncmp("INTVL", message, strlen("INTVL")) == 0) {
-        // parse and set the sleep interval
-        int offset = 5;
-        // extract the unit (S=secs, M=mins, H=hours, D=Days)
-        char unit[2];
-        sprintf(unit, "%c", message[3 + offset]);
-        unit[1] = '\0';
-        if (strcmp(unit, "S") == 0) _sleep_unit = SECONDS;
-        else if (strcmp(unit, "M") == 0) _sleep_unit = MINUTES;
-        else if (strcmp(unit, "H") == 0) _sleep_unit = HOURS;
-        else if (strcmp(unit, "D") == 0) _sleep_unit = DAYS;
-        else return;
-        // extract the requested time
-        char s[4];
-        s[0] = message[0 + offset];
-        s[1] = message[1 + offset];
-        s[2] = message[2 + offset];
-        s[3] = '\0';
-        _sleep_time = atoi(s);
-        #if DEBUG == 1
-          Serial.print(F("SLEEP T="));
-          Serial.print(_sleep_time);
-          Serial.print(F(" U="));
-          Serial.println(_sleep_unit);
-        #endif
-        #if PERSIST == 1
-          // save it to eeprom
-          saveState(EEPROM_SLEEP_UNIT, _sleep_unit);
-          // encode sleep time
-          int major = 0;
-          if (_sleep_time > 750) major = 3;
-          else if (_sleep_time > 500) major = 2;
-          else if (_sleep_time > 250) major = 1;
-          int minor = _sleep_time - 250 * major;
-          saveState(EEPROM_SLEEP_SAVED, 1);
-          saveState(EEPROM_SLEEP_TIME_MINOR, minor);
-          saveState(EEPROM_SLEEP_TIME_MAJOR, major);
-        #endif
-        // interval set, reply back with the same message to acknowledge.
-        _send(_msg.set(message));
-      }
-    #endif
-    // end remote configuration
-  #endif
-  // WAKEUP: when received after a sleeping cycle or during wait, abort the cycle and stay awake
-  #if SLEEP_MANAGER == 1
-    else if (strcmp(message, "WAKEUP") == 0) {
+    // MODEx: change the way the node behaves. 0: stay awake withtout executing each sensors' loop(), 1: go to sleep for the configured interval, 2: wait for the configured interval, 3: stay awake and execute each sensors' loop() (e.g. MODE1)
+    else if (strlen(message) == 5 && strncmp("MODE", message, strlen("MODE")) == 0) {
+      // extract mode
+      char s[2];
+      s[0] = message[4];
+      s[1] = '\0';
+      _sleep_mode = atoi(s);
       #if DEBUG == 1
-        Serial.println(F("WAKEUP"));
+        Serial.print(F("SLEEP M="));
+        Serial.println(_sleep_mode);
+      #endif
+      #if PERSIST == 1
+        // save it to the eeprom
+        saveState(EEPROM_SLEEP_SAVED, 1);
+        saveState(EEPROM_SLEEP_MODE, _sleep_mode);
       #endif
       _send(_msg.set(message));
-      _sleep_mode = IDLE;
+    }
+    // INTVLnnnX: set and save the wait/sleep interval to nnn where X is S=Seconds, M=mins, H=Hours, D=Days. E.g. INTVL010M would be 10 minutes
+    else if (strlen(message) == 9 && strncmp("INTVL", message, strlen("INTVL")) == 0) {
+      // parse and set the sleep interval
+      int offset = 5;
+      // extract the unit (S=secs, M=mins, H=hours, D=Days)
+      char unit[2];
+      sprintf(unit, "%c", message[3 + offset]);
+      unit[1] = '\0';
+      if (strcmp(unit, "S") == 0) _sleep_unit = SECONDS;
+      else if (strcmp(unit, "M") == 0) _sleep_unit = MINUTES;
+      else if (strcmp(unit, "H") == 0) _sleep_unit = HOURS;
+      else if (strcmp(unit, "D") == 0) _sleep_unit = DAYS;
+      else return;
+      // extract the requested time
+      char s[4];
+      s[0] = message[0 + offset];
+      s[1] = message[1 + offset];
+      s[2] = message[2 + offset];
+      s[3] = '\0';
+      _sleep_time = atoi(s);
+      #if DEBUG == 1
+        Serial.print(F("SLEEP T="));
+        Serial.print(_sleep_time);
+        Serial.print(F(" U="));
+        Serial.println(_sleep_unit);
+      #endif
+      #if PERSIST == 1
+        // save it to eeprom
+        saveState(EEPROM_SLEEP_UNIT, _sleep_unit);
+        // encode sleep time
+        int major = 0;
+        if (_sleep_time > 750) major = 3;
+        else if (_sleep_time > 500) major = 2;
+        else if (_sleep_time > 250) major = 1;
+        int minor = _sleep_time - 250 * major;
+        saveState(EEPROM_SLEEP_SAVED, 1);
+        saveState(EEPROM_SLEEP_TIME_MINOR, minor);
+        saveState(EEPROM_SLEEP_TIME_MAJOR, major);
+      #endif
+      // interval set, reply back with the same message to acknowledge.
+      _send(_msg.set(message));
     }
   #endif
+  // WAKEUP: when received after a sleeping cycle or during wait, abort the cycle and stay awake
+  else if (strcmp(message, "WAKEUP") == 0) {
+    #if DEBUG == 1
+      Serial.println(F("WAKEUP"));
+    #endif
+    _send(_msg.set(message));
+    _sleep_mode = IDLE;
+  }
 }
 
-#if SLEEP_MANAGER == 1
 // wrapper of smart sleep
 void NodeManager::_sleep() {
+  // reset the last interrupt pin
+  _last_interrupt_pin = -1;
   // calculate the seconds to sleep
   long sleep_sec = _sleep_time;
   if (_sleep_unit == MINUTES) sleep_sec = sleep_sec * 60;
@@ -1891,6 +2542,8 @@ void NodeManager::_sleep() {
   if (_sleep_mode == WAIT) {
     // wait for the given interval
     wait(sleep_ms);
+    // send heartbeat to the controller
+    sendHeartbeat(_ack);
   }
   else if (_sleep_mode == SLEEP) {
     // setup interrupt pins
@@ -1911,16 +2564,15 @@ void NodeManager::_sleep() {
         pin_number = INTERRUPT_PIN_2;
         interrupt_mode = _interrupt_2_mode;
       }
+      _last_interrupt_pin = pin_number;
       #if DEBUG == 1
         Serial.print(F("WAKE P="));
         Serial.print(pin_number);
         Serial.print(F(", M="));
         Serial.println(interrupt_mode);
       #endif
-      #if SLEEP_MANAGER == 1
-        // when waking up from an interrupt on the wakup pin, stop sleeping
-        if (_sleep_interrupt_pin == pin_number) _sleep_mode = IDLE;
-      #endif
+      // when waking up from an interrupt on the wakup pin, stop sleeping
+      if (_sleep_interrupt_pin == pin_number) _sleep_mode = IDLE;
     }
   }
   // coming out of sleep
@@ -1942,8 +2594,18 @@ void NodeManager::_sleep() {
     }
   #endif
 }
-#endif
 
+// present the service
+void NodeManager::_present(int child_id, int type) {
+  #if DEBUG == 1
+    Serial.print(F("PRES I="));
+    Serial.print(child_id);
+    Serial.print(F(", T="));
+    Serial.println(type);
+  #endif
+  if (_sleep_between_send > 0) sleep(_sleep_between_send);
+  present(child_id,type,"",_ack);
+}
 
 // return the next available child_id
 int NodeManager::_getAvailableChildId() {

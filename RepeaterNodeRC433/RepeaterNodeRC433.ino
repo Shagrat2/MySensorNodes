@@ -1,6 +1,5 @@
-// #define SYS_BAT - Батарею через функцию MySensor
-#define MY_NODE_ID 6
-#define MY_PARENT_NODE_ID 0
+#define MY_NODE_ID AUTO
+#define MY_PARENT_NODE_ID AUTO
 
 // Enable debug prints to serial monitor
 #define MY_DEBUG
@@ -12,13 +11,30 @@
 // Enabled repeater feature for this node
 #define MY_REPEATER_FEATURE
 
+//#define MY_OTA_FIRMWARE_FEATURE
+
+#define HASRCSWITCH
+
 #include <SPI.h>
 #include <MySensors.h>
 #include <EEPROM.h>
-#include <RCSwitch.h>
 
-unsigned long SEND_FREQUENCY = 30000; // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
+#ifdef HASRCSWITCH
+#include <RCSwitch.h>
+#endif
+
+#ifdef HASRCSWITCH  
+  #define SKETCH_NAME "Repeater Node witch RC"
+#else
+  #define SKETCH_NAME "Repeater Node"
+#endif
+#define SKETCH_MAJOR_VER "1"
+#define SKETCH_MINOR_VER "3"
+
+unsigned long SEND_FREQUENCY = (15*60*1000); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 unsigned long RECEIVE_TIMEOUT = 500;
+
+#define RC_ID 1
 
 #define RECEIVEPIN 0  // 2 Pin Interupt
 #define SENDPID 4
@@ -26,7 +42,9 @@ unsigned long RECEIVE_TIMEOUT = 500;
 #define TRY_TO_SEND 5
 
 //===============================================
+#ifdef HASRCSWITCH
 RCSwitch mySwitch = RCSwitch();
+#endif
 
 unsigned long currentTime; 
 unsigned long lastSend;
@@ -35,7 +53,9 @@ unsigned long lastRCId;
 unsigned long SendRCId = 0;
 unsigned long SendTry = 0;
 
-MyMessage RCMsg(MY_NODE_ID, V_IR_RECEIVE);
+#ifdef HASRCSWITCH
+  MyMessage RCMsg(RC_ID, V_IR_RECEIVE);
+#endif
 
 void setup()  
 {  
@@ -51,8 +71,10 @@ void setup()
   }  
   
   //=== RC
+#ifdef HASRCSWITCH  
   mySwitch.enableReceive( RECEIVEPIN );
   mySwitch.enableTransmit( SENDPID );    
+#endif
   
   wdt_enable(WDTO_8S);  
   
@@ -63,9 +85,12 @@ void setup()
 
 void presentation()  {
   //Send the sensor node sketch version information to the gateway
-  sendSketchInfo("Repeater Node witch RC", "2.0");
+  sendSketchInfo(SKETCH_NAME, SKETCH_MAJOR_VER"."SKETCH_MINOR_VER);  
 
-  present(MY_NODE_ID, S_ARDUINO_NODE, "RC433");  
+  #ifdef HASRCSWITCH
+    
+    present(RC_ID, S_ARDUINO_NODE, "RC433");
+  #endif
 }
 
 void loop()
@@ -75,6 +100,7 @@ void loop()
   currentTime = millis();
 
   //==== RC send
+#ifdef HASRCSWITCH  
   if (SendTry != 0)
   {
     Serial.print("Send RC ");
@@ -108,6 +134,7 @@ void loop()
     
     mySwitch.resetAvailable();
   }  
+#endif  
 
   //=== Repeater
   // Send feq
@@ -123,7 +150,7 @@ void receive(const MyMessage &message)
 { 
   if (message.isAck()) return;
 
-  if (message.sensor != MY_NODE_ID) return;
+  if (message.sensor != RC_ID) return;
   if (message.type != V_IR_SEND) return;
 
   // Set to task

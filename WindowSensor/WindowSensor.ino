@@ -20,12 +20,12 @@
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
-//#define IsMQTT
+//#define SYS_BAT
 #define SendSkipTry
 
-#define SKETCH_NAME "Binary Sensor"
+#define SKETCH_NAME "Door/Window Sensor"
 #define SKETCH_MAJOR_VER "1"
-#define SKETCH_MINOR_VER "0"
+#define SKETCH_MINOR_VER "2"
 
 #define PRIMARY_CHILD_ID 3
 #define SECONDARY_CHILD_ID 4
@@ -39,8 +39,8 @@
 float tGain = 0.9338;
 float tOffset = 290.7;
 
-unsigned long SEND_FREQUENCY = 900000; // Minimum time between send (in milliseconds). We don't wnat to spam the gateway.
-unsigned long SEND_FREQUENCY_NOTSEND = 8000; // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
+unsigned long SEND_FREQUENCY = (1*60*60*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway.
+unsigned long SEND_FREQUENCY_NOTSEND = (8*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 
 #define PRIMARY_BUTTON_PIN 2   // Arduino Digital I/O pin for button/reed switch
 #define SECONDARY_BUTTON_PIN 3 // Arduino Digital I/O pin for button/reed switch
@@ -75,7 +75,7 @@ MyMessage msg(PRIMARY_CHILD_ID, V_TRIPPED);
 MyMessage msg2(SECONDARY_CHILD_ID, S_VIBRATION);
 
 MyMessage TempMsg(CHILD_ID_DEV, V_TEMP);
-#ifdef IsMQTT
+#ifndef SYS_BAT
   MyMessage BattMsg(CHILD_ID_DEV, V_VOLTAGE);
 #endif
 
@@ -127,20 +127,18 @@ void SendDevInfo()
   }
 
   //========= Battery ============= 
-  #ifdef IsMQTT
-    float batteryV  = readVcc() * 0.001;
-    send(BattMsg.set(batteryV, 2));    
-    
-    Serial.print("BatV:");
-    Serial.println(batteryV);    
-  #else
-    int batteryV = readVcc();
-    int batteryPcnt = min(map(batteryV, MIN_V, MAX_V, 0, 100), 100);
-    sendBatteryLevel( batteryPcnt ); 
-    
+  int batteryV = readVcc();
+  if (batteryV != 0){
     Serial.print("BatV:");
     Serial.println(batteryV * 0.001);        
-  #endif  
+    
+    #ifdef SYS_BAT
+      int batteryPcnt = min(map(batteryV, MIN_V, MAX_V, 0, 100), 100);
+      sendBatteryLevel( batteryPcnt );
+    #else          
+      send(BattMsg.set(batteryV*0.001, 2));   
+    #endif    
+  }
   
   #ifdef SendSkipTry
     if (lasterrsend != errsend){
@@ -202,11 +200,10 @@ void loop()
   uint8_t value;  
   
   // Short delay to allow buttons to properly settle
-  sleep(5);
+  wait(5);
   
   // Door sensor
-  value = digitalRead(PRIMARY_BUTTON_PIN);
-  
+  value = digitalRead(PRIMARY_BUTTON_PIN);  
   if (value != sendValue) {
      // Value has changed from last transmission, send the updated value
      if (!send(msg.set(value==HIGH ? 1 : 0))){
@@ -222,8 +219,7 @@ void loop()
   }
 
   // Vibration sensor
-  value = digitalRead(SECONDARY_BUTTON_PIN);
-  
+  value = digitalRead(SECONDARY_BUTTON_PIN);  
   if (value != sendValue2) {
      // Value has changed from last transmission, send the updated value
      if (!send(msg2.set(value==HIGH ? 1 : 0))){
@@ -236,8 +232,6 @@ void loop()
        sendValue2 = value;
        sendtry2 = 0;
      }
-     
-     sleep(200);
   }
 
   // Sleep until something happens with the sensor
@@ -253,7 +247,7 @@ void loop()
     Serial.println("sleep long");
   }
   
-  if ( sleep(PRIMARY_BUTTON_PIN-2, CHANGE, SECONDARY_BUTTON_PIN-2, CHANGE, SleepTime) == -1){
+  if ( smartSleep(PRIMARY_BUTTON_PIN-2, CHANGE, SECONDARY_BUTTON_PIN-2, CHANGE, SleepTime) == -1){
     // Device Info
     SendDevInfo();
   };

@@ -11,7 +11,7 @@ NodeManager includes the following main components:
 Documentation available on: https://mynodemanager.sourceforge.io 
  */
 
-#define MY_OTA_FIRMWARE_FEATURE
+//#define MY_OTA_FIRMWARE_FEATURE
  
 // load user settings
 #include "config.h"
@@ -19,9 +19,10 @@ Documentation available on: https://mynodemanager.sourceforge.io
 #include <MySensors.h>
 // load NodeManager library
 #include "NodeManager.h"
+#include <avr/wdt.h>
 
 #define SKETCH_NAME "Sprinkers"
-#define SKETCH_VERSION "2.1.2"
+#define SKETCH_VERSION "2.1.3"
 
 // create a NodeManager instance
 NodeManager nodeManager;
@@ -33,16 +34,24 @@ unsigned long lastSend;
 
 // before
 void before() {
+  wdt_disable();
+ 
   // setup the serial port baud rate
   Serial.begin(MY_BAUD_RATE);  
+  Serial.println("Start");
   /*
    * Register below your sensors
   */
-  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,2);
-  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,3);
-  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,4);
-  nodeManager.registerSensor(SENSOR_LATCHING_RELAY,5);
+  SensorRelay* R1 = nodeManager.get( nodeManager.registerSensor(SENSOR_RELAY,2) );
+  SensorRelay* R2 = nodeManager.get( nodeManager.registerSensor(SENSOR_RELAY,3) );
+  SensorRelay* R3 = nodeManager.get( nodeManager.registerSensor(SENSOR_RELAY,4) );
+  SensorRelay* R4 = nodeManager.get( nodeManager.registerSensor(SENSOR_RELAY,5) );
 
+  R1->setInitialValue(LOW);
+  R2->setInitialValue(LOW);
+  R3->setInitialValue(LOW);
+  R4->setInitialValue(LOW);
+  
   int sensor_ldr = nodeManager.registerSensor(SENSOR_DS18B20, 6);
   SensorDs18b20* DS = ((SensorDs18b20*)nodeManager.get(sensor_ldr));
   DS->setSamplesInterval(SEND_FREQUENCY);
@@ -63,19 +72,7 @@ void presentation() {
 }
 
 // setup
-void setup() {
-  wdt_disable();
-
-  pinMode(2, OUTPUT);
-  pinMode(3, OUTPUT);
-  pinMode(4, OUTPUT);
-  pinMode(5, OUTPUT);  
-
-  digitalWrite(2, LOW); 
-  digitalWrite(3, LOW); 
-  digitalWrite(4, LOW); 
-  digitalWrite(5, LOW); 
-    
+void setup() {   
   // call NodeManager setup routine
   nodeManager.setup();
 

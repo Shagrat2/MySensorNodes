@@ -14,9 +14,13 @@
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
+#define SKETCH_NAME "Natural GAS Meter"
+#define SKETCH_MAJOR_VER "1"
+#define SKETCH_MINOR_VER "3"
+
 #define S2 // Hav S2 sensor
 
-#define MY_SMART_SLEEP_WAIT_DURATION_MS (200ul)
+//#define MY_SMART_SLEEP_WAIT_DURATION_MS (200ul)
 
 #define S1_CHILD_ID     1
 #define S1_DIGITAL_INPUT_SENSOR 2                     // The digital input you attached your sensor.  (Only 2 and 3 generates interrupt!)
@@ -200,7 +204,7 @@ void setup()
 
 void presentation()  {
   // Send the sketch version information to the gateway and Controller
-  sendSketchInfo("Natural GAS Meter", "1.2_MD");
+  sendSketchInfo(SKETCH_NAME, SKETCH_MAJOR_VER"."SKETCH_MINOR_VER);
 
   // Register this device as Waterflow sensor
   present(S1_CHILD_ID, S_CUSTOM, "Pulse sensor S1");

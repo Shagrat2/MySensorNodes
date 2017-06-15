@@ -44,10 +44,7 @@ void before() {
    * Register below your sensors
   */ 
   
-//  nodeManager.registerSensor(SENSOR_BMP);
-//  SensorBMP* presSensor = ((SensorBMP*)nodeManager.get(bmp));
-//  presSensor.setType(V_PRESSURE);
-
+  nodeManager.registerSensor(SENSOR_BMP085);
   nodeManager.registerSensor(SENSOR_DHT22, 8);
 
   /*

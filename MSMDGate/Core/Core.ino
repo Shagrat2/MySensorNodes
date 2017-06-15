@@ -40,6 +40,9 @@
 #define MY_RADIO_NRF24
 //#define MY_RADIO_RFM69
 
+#define MY_OTA_FIRMWARE_FEATURE
+#define MY_OTA_FLASH_SS 17
+
 // Set LOW transmit power level as default, if you have an amplified NRF-module and
 // power your radio separately with a good regulator you can turn up PA level. 
 //No nide - #define MY_RF24_PA_LEVEL RF24_PA_LOW
@@ -88,7 +91,7 @@ void setup() {
     
   // Setup locally attached sensors
 
-  //???
+  // Start WIFI
   pinMode(3, OUTPUT);
   digitalWrite(3, 1);
 
