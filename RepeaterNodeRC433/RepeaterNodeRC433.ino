@@ -1,5 +1,6 @@
 #define MY_NODE_ID AUTO
 #define MY_PARENT_NODE_ID AUTO
+//#define MY_PARENT_NODE_IS_STATIC
 
 // Enable debug prints to serial monitor
 #define MY_DEBUG
@@ -10,8 +11,6 @@
 
 // Enabled repeater feature for this node
 #define MY_REPEATER_FEATURE
-
-//#define MY_OTA_FIRMWARE_FEATURE
 
 #define HASRCSWITCH
 
@@ -31,7 +30,7 @@
 #define SKETCH_MAJOR_VER "1"
 #define SKETCH_MINOR_VER "3"
 
-unsigned long SEND_FREQUENCY = (15*60*1000); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
+unsigned long SEND_FREQUENCY = (60*1000ul); //(15*60*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 unsigned long RECEIVE_TIMEOUT = 500;
 
 #define RC_ID 1
@@ -63,7 +62,7 @@ void setup()
   
   // Init adress from pin
   if (analogRead(3) >= 1023){
-    Serial.begin(115200);
+    Serial.begin(115200);    
     Serial.println("Init adress");
     
     for (int i=0;i<512;i++)

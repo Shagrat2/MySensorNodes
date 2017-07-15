@@ -28,7 +28,7 @@
 #define CHILD_ID     1
 #define CHILD_ID_DEV 254
 
-unsigned long SEND_FREQUENCY = (15*60*1000); // 15 min, Minimum time between send (in milliseconds). We don't wnat to spam the gateway.  
+unsigned long SEND_FREQUENCY = (15*60*1000ul); // 15 min, Minimum time between send (in milliseconds). We don't wnat to spam the gateway.  
 
 int countvalues = 50;      // how many values must be averaged
 float sensorValue = 0;  // variable to store the value coming from the sensor

@@ -72,7 +72,7 @@ long lasterrsend=0;
 
 // Change to V_LIGHT if you use S_LIGHT in presentation below
 MyMessage msg(PRIMARY_CHILD_ID, V_TRIPPED);
-MyMessage msg2(SECONDARY_CHILD_ID, S_VIBRATION);
+MyMessage msg2(SECONDARY_CHILD_ID, V_ARMED);
 
 MyMessage TempMsg(CHILD_ID_DEV, V_TEMP);
 #ifndef SYS_BAT

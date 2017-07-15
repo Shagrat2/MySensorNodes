@@ -114,7 +114,7 @@ unsigned long SEND_FREQUENCY = (15*60*1000ul); // Minimum time between send (in 
   BH1750 lightMeter(0x23);
 
   uint16_t BH1750LuxLast = 0;
-  MyMessage MesBH1750LuxLux(BH1750_ID, S_LIGHT_LEVEL);
+  MyMessage MesBH1750LuxLux(BH1750_ID, V_LIGHT_LEVEL);
 #endif
 
 //== DHT
