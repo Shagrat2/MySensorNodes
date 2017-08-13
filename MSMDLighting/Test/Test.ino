@@ -105,7 +105,7 @@ void setup() {
   if (_flash.initialize()) {
     Serial.println("Flash: OK");
   } else {    
-    Serial.print("Flash: ERROR ");
+    Serial.println("Flash: ERROR ");
   }
 
   // ATASHA

@@ -12,7 +12,7 @@
 // Enabled repeater feature for this node
 #define MY_REPEATER_FEATURE
 
-#define HASRCSWITCH
+//#define HASRCSWITCH
 
 #include <SPI.h>
 #include <MySensors.h>
@@ -30,7 +30,7 @@
 #define SKETCH_MAJOR_VER "1"
 #define SKETCH_MINOR_VER "3"
 
-unsigned long SEND_FREQUENCY = (60*1000ul); //(15*60*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
+unsigned long SEND_FREQUENCY = (15*60*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 unsigned long RECEIVE_TIMEOUT = 500;
 
 #define RC_ID 1
