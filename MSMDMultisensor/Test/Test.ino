@@ -1,6 +1,6 @@
 #define MY_SIGNING_ATSHA204_PIN 16 // A2
 
-//#DEFINE M25P40 // Flash type
+#define M25P40 // Flash type
 
 #define MY_OTA_FIRMWARE_FEATURE
 #define MY_OTA_FLASH_SS 7
@@ -105,12 +105,18 @@ void setup() {
   } else {
     Serial.println("Radio: ERROR");
   }
+
+  // Init transaction
+  stInitTransition();
+  Serial.print("nodeId: ");       Serial.print(getNodeId());        Serial.println("");
+  Serial.print("parentNodeId: "); Serial.print(getParentNodeId());  Serial.println("");
+  Serial.print("distanceGW: ");   Serial.print(getDistanceGW());    Serial.println("");
   
   // Flash
   if (_flash.initialize()) {
     Serial.println("Flash: OK");
   } else {    
-    Serial.print("Flash: ERROR ");
+    Serial.println("Flash: ERROR ");
   }
 
   // ATASHA

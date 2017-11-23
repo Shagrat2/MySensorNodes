@@ -8,14 +8,20 @@
 #define MY_NODE_ID AUTO
 #define MY_PARENT_NODE_ID AUTO
 
-//#define BATTERY_PROCENT
+#define MY_SIGNING_ATSHA204_PIN 16 // A2
+
+#define M25P40 // Flash type
+#define MY_OTA_FIRMWARE_FEATURE
+#define MY_OTA_FLASH_SS 7
+
+//#define SYSTEM_BATTERY
 
 #define SensBMP180 // 21% -26%
-//#define SensSI7021 // 18% - 24%
-//#define SensBH1750 // 13% - 21%
-#define SensDHT // 18% - 22%
-#define SensDS18B20 // 21% - 20%
-//#define SensKey
+#define SensSI7021 // 18% - 24%
+#define SensBH1750 // 13% - 21%
+//#define SensDHT // 18% - 22%
+//#define SensDS18B20 // 21% - 20%
+#define SensKey
 
 // Flash options
 #define MY_OTA_FIRMWARE_FEATURE
@@ -45,7 +51,6 @@
 
 // SI7021
 #ifdef SensSI7021
-  #include "i2c.h"  
   #include "i2c_SI7021.h"
 #endif
 
@@ -74,17 +79,18 @@
 
 unsigned long SEND_FREQUENCY = (15*60*1000ul); // Minimum time between send (in milliseconds). We don't wnat to spam the gateway. 
 
-#define POWER_PIN 6
-#define INIT_PIN A4
-#define LED_PIN 14
+#define POWER_PIN   6
+#define INIT_PIN    A4
+#define LED_PIN     14
+#define BATTERY_PIN A7
 
-#define BMP180_ID 1
-#define SI7021_ID 2
-#define BH1750_ID 3
-#define DHT_ID    4
-#define KEY_ID    5
-
-#define DALAS_ID 10
+#define BMP180_ID   1
+#define SI7021_ID   2
+#define BH1750_ID   3
+#define DHT_ID      4
+#define KEY_ID      5
+#define BATTERY_ID  240
+#define DALAS_ID    10
 
 //== BMP180
 #ifdef SensBMP180
@@ -167,6 +173,11 @@ unsigned long SEND_FREQUENCY = (15*60*1000ul); // Minimum time between send (in 
   MyMessage MsgKeyValue(KEY_ID, V_TRIPPED);
 #endif
 
+#ifndef SYSTEM_BATTERY
+  MyMessage BattMsg(BATTERY_ID, V_VOLTAGE);
+#endif
+MyMessage BattRaw(BATTERY_ID, V_VAR1);
+
 void before(){
   wdt_disable();
 
@@ -187,9 +198,11 @@ void before(){
     } 
   }
 
+  // Battery pin
+  pinMode(BATTERY_PIN, INPUT);
+
   // Setup the buttons
   pinMode(POWER_PIN, OUTPUT);
-
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
@@ -263,7 +276,7 @@ void before(){
 
 void setup(){
   wdt_reset();
-  digitalWrite(LED_PIN, HIGH);  
+  digitalWrite(LED_PIN, HIGH);
 }
 
 #ifdef SensKey
@@ -300,29 +313,42 @@ void onPulse(){
 void presentation() {
   // Send the sketch version information to the gateway and Controller
   sendSketchInfo(SKETCH_NAME, SKETCH_MAJOR_VER"."SKETCH_MINOR_VER);
+  wait(50);
 
+  // Battery
+  present(BATTERY_ID, S_MULTIMETER, "Battery");
+  wait(50);
+  
   // Register sensos
   #ifdef SensBMP180
     present(BMP180_ID, S_BARO, "BMP180 sensor");  
+    wait(50);
   #endif
   #ifdef SensSI7021
     present(SI7021_ID, S_HUM, "Si7021 sensor");
+    wait(50);
   #endif
   #ifdef SensBH1750
     present(BH1750_ID, S_LIGHT, "BH1750 sensor");
+    wait(50);  
   #endif 
   #ifdef SensDHT
     present(DHT_ID, S_HUM, "DHT sensor");
+    wait(50);
   #endif 
   #ifdef SensDS18B20
     present(DALAS_ID, S_TEMP, "DS sensors");
+    wait(50);
   #endif 
   #ifdef SensKey
     present(KEY_ID, S_BINARY, "Key sensors");
+    wait(50);
   #endif 
 }
 
 long readVcc() {
+  return analogRead(BATTERY_PIN) * 3.7; // 3.616813294232649;
+ /* 
   long result;
   // Read 1.1V reference against AVcc
   ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
@@ -333,25 +359,26 @@ long readVcc() {
   result |= ADCH<<8;
   result = 1126400L / result; // Back-calculate AVcc in mV
   return result;
+  */
 }
 
 void SendDevInfo()
 {
   //========= Battery ============= 
-  #ifdef BATTERY_PROCENT
-    float batteryV  = readVcc() * 0.001;
-    send(BattMsg.set(batteryV, 2));    
-    
-    Serial.print("BatV:");
-    Serial.println(batteryV);    
-  #else
+  #ifdef SYSTEM_BATTERY
     int batteryV = readVcc();
     int batteryPcnt = min(map(batteryV, MIN_V, MAX_V, 0, 100), 100);
     sendBatteryLevel( batteryPcnt ); 
     
     Serial.print("BatV:");
     Serial.println(batteryV * 0.001);        
-  #endif  
+  #else
+    float batteryV  = readVcc() * 0.001;
+    send(BattMsg.set(batteryV, 2));    
+    
+    Serial.print("BatV:");
+    Serial.println(batteryV);  
+  #endif
   
   #ifdef SendSkipTry
     if (lasterrsend != errsend){
@@ -369,6 +396,8 @@ void loop() {
      Serial.println("***********");
      Serial.print("Wakeup: ");
      Serial.println(millis());
+
+    digitalWrite(LED_PIN, LOW);
   #endif
       
   digitalWrite(POWER_PIN, LOW);
@@ -531,13 +560,33 @@ void loop() {
   #endif
   
   #ifdef DEBUG     
+     digitalWrite(LED_PIN, HIGH);
      Serial.print("Sleep: ");
      Serial.println(millis());
   #endif
 
-  wait(SEND_FREQUENCY);
- // if (smartSleep(SEND_FREQUENCY) == -1){
-//    // Device Info
-    //SendDevInfo();
-  //}  
+  // wait(SEND_FREQUENCY);
+  if (smartSleep(SEND_FREQUENCY) == -1){
+     SendDevInfo();
+  }
+}
+
+void receive(const MyMessage &message) {
+  uint8_t Dest = message.sender;
+
+  // Request
+  if (mGetCommand(message) == C_REQ) {
+    switch (message.sensor) {
+      case BATTERY_ID:
+         switch (message.type) {
+            case V_VAR1:
+              int Val = analogRead(BATTERY_PIN);
+              send(BattRaw.set(Val));
+
+              break;
+         }
+
+         break;
+    }
+  }
 }
